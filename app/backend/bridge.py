@@ -178,8 +178,16 @@ def m_probe(params):
     d = json.loads(r.stdout)
     v = next((s for s in d["streams"] if s["codec_type"] == "video"), None)
     a = next((s for s in d["streams"] if s["codec_type"] == "audio"), None)
+    w, h = (v or {}).get("width"), (v or {}).get("height")
+    rot = 0
+    for sd in (v or {}).get("side_data_list", []) or []:
+        if "rotation" in sd:
+            rot = int(float(sd["rotation"]))
+    rot = rot or int(((v or {}).get("tags") or {}).get("rotate", 0) or 0)
+    if abs(rot) % 180 == 90:  # phone footage: ffmpeg auto-rotates, so report display size
+        w, h = h, w
     return {"path": params["path"], "duration": float(d["format"].get("duration", 0) or 0),
-            "width": v and v.get("width"), "height": v and v.get("height"),
+            "width": w, "height": h, "rotation": rot,
             "has_video": v is not None, "has_audio": a is not None,
             "is_image": v is not None and d["format"].get("format_name", "").startswith(("image2", "png_pipe", "jpeg_pipe", "webp_pipe"))}
 

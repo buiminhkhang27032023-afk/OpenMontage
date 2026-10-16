@@ -174,6 +174,7 @@ function loadProject(p) {
   TL.commit(); TL.proj = { version: 2, texts: p.texts || [], tracks: p.tracks }; TL.sel = null;
   if (p.width) { const v = `${p.width}x${p.height}`; if ([...$('#preset').options].some((o) => o.value === v)) $('#preset').value = v; }
   if (p.subtitle_path) $('#subs').value = p.subtitle_path;
+  if (p.post) { if (p.post.color_grade) $('#grade').value = p.post.color_grade; if (p.post.audio_enhance) $('#aenh').value = p.post.audio_enhance; }
   if (p.bin) state.bin = p.bin;
   // make sure every referenced file is in the bin (thumbnails, names)
   const paths = new Set(); p.tracks.forEach((t) => t.clips.forEach((c) => paths.add(c.path)));

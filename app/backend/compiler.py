@@ -76,6 +76,8 @@ def _default_font():
 
 
 def _esc_text(s: str) -> str:
+    # drawtext fonts rarely have emoji glyphs: drop astral-plane chars instead of rendering boxes
+    s = "".join(ch for ch in s if ord(ch) < 0x10000 and not 0x2600 <= ord(ch) <= 0x27BF and ch != "\ufe0f").strip()
     return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019").replace("%", "\\%")
 
 
