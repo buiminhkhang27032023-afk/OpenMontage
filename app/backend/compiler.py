@@ -156,10 +156,11 @@ def build(project: dict, progress: bool = True):
         if d > 0:
             tr = clips[i - 1]["transition"]["type"]
             tr = tr if tr in XFADE_TYPES else "fade"
-            F.append(f"{cv}[v{i}]xfade=transition={tr}:duration={d:.4f}:offset={cur - d:.4f}[xv{i}]")
+            F.append(f"{cv}[v{i}]xfade=transition={tr}:duration={d:.4f}:offset={cur - d:.4f},fps={fps}[xv{i}]")
             F.append(f"{ca}[a{i}]acrossfade=d={d:.4f}:c1=tri:c2=tri[xa{i}]")
         else:
-            F.append(f"{cv}{ca}[v{i}][a{i}]concat=n=2:v=1:a=1[xv{i}][xa{i}]")
+            F.append(f"{cv}{ca}[v{i}][a{i}]concat=n=2:v=1:a=1[xvc{i}][xa{i}]")
+            F.append(f"[xvc{i}]fps={fps}[xv{i}]")  # keep a constant 1/fps timebase for later xfades
         cv, ca = f"[xv{i}]", f"[xa{i}]"
         cur += clip_len(clips[i]) - d
 

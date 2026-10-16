@@ -265,8 +265,41 @@ def m_agent_cancel(params):
     return True
 
 
+def m_transcribe(params):
+    import transcribe as T
+    path = params["path"]
+    def prog(d):
+        send({"event": "transcribe_progress", "data": {"path": path, **d}})
+    r = T.transcribe(path, model=params.get("model") or os.environ.get("OM_WHISPER_MODEL") or None,
+                     language=params.get("language", "vi"), progress=prog)
+    return r if params.get("full") else {k: r[k] for k in ("path", "model", "language", "duration", "elapsed", "sentences")}
+
+
+def _apply_auto_subtitles(project):
+    sub = project.get("auto_subtitles")
+    if not sub:
+        return project
+    import transcribe as T
+    style = sub.get("style", "tiktok") if isinstance(sub, dict) else "tiktok"
+    def get_tr(path):
+        tr = T.find_cached(path)
+        if tr is None and (not isinstance(sub, dict) or sub.get("transcribe_missing", True)):
+            log(f"Transcribing {Path(path).name} for subtitles …")
+            tr = m_transcribe({"path": path, "full": True})
+        return tr
+    ass = T.build_ass(project, get_tr, style=style, uppercase=bool(isinstance(sub, dict) and sub.get("uppercase")))
+    if not ass:
+        log("auto_subtitles: no speech found")
+        return project
+    out = Path(project.get("output") or "studio.mp4")
+    ass_path = out.with_suffix(".subs.ass")
+    ass_path.write_text(ass, encoding="utf-8")
+    log(f"auto_subtitles -> {ass_path}")
+    return dict(project, subtitle_path=str(ass_path))
+
+
 def m_render_project(params):
-    project = params["project"]
+    project = _apply_auto_subtitles(params["project"])
     cmd, out, total = build_render_cmd(project)
     log("ffmpeg " + " ".join(cmd[1:]))
     p = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
@@ -308,6 +341,10 @@ METHODS = {k[2:]: v for k, v in globals().items() if k.startswith("m_")}
 
 def main():
     reload_env()
+    try:
+        import transcribe as _T  # noqa: F401  (patches PyAV for the repo's transcriber tool)
+    except Exception:
+        pass
     send({"event": "ready", "data": {"root": str(REPO_ROOT)}})
     for raw in sys.stdin:
         raw = raw.strip()

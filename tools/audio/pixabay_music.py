@@ -16,7 +16,8 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any
+import os
+from typing import Any, Optional
 
 from tools.base_tool import (
     BaseTool,
@@ -130,9 +131,25 @@ class PixabayMusic(BaseTool):
         "Upgrade-Insecure-Requests": "1",
     }
 
+    _reachable: Optional[bool] = None
+    _checked_at: float = 0.0
+
     def get_status(self) -> ToolStatus:
-        # Always available — no API key required
-        return ToolStatus.AVAILABLE
+        # No API key required, but Pixabay often blocks scrapers (HTTP 403).
+        # Probe once (cached 10 min) and report UNAVAILABLE when blocked.
+        if os.environ.get("OPENMONTAGE_SKIP_NETWORK_PROBES"):
+            return ToolStatus.AVAILABLE
+        now = time.time()
+        if PixabayMusic._reachable is None or now - PixabayMusic._checked_at > 600:
+            try:
+                import urllib.request
+                req = urllib.request.Request("https://pixabay.com/music/search/upbeat/", headers=self._BROWSER_HEADERS)
+                with urllib.request.urlopen(req, timeout=6) as r:
+                    PixabayMusic._reachable = r.status < 400
+            except Exception:
+                PixabayMusic._reachable = False
+            PixabayMusic._checked_at = now
+        return ToolStatus.AVAILABLE if PixabayMusic._reachable else ToolStatus.UNAVAILABLE
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
         return 0.0  # Pixabay Music is free

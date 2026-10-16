@@ -67,6 +67,7 @@
           <option>bright_clean</option><option>vintage_film</option><option>high_contrast</option></select></label>
         <label>Audio enhance <select id="aenh"><option value="">none</option>
           <option>normalize_only</option><option>clean_speech</option><option>noise_reduce</option><option>podcast</option></select></label>
+        <label>Auto subtitles <select id="autosub"><option value="">off</option><option value="tiktok">TikTok (word highlight)</option><option value="clean">Clean</option></select></label>
         <label>Subtitles <input id="subs" placeholder=".srt path"><button id="pickSubs" class="mini">…</button></label>
         <button id="render" class="primary">Export video</button>
         <progress id="prog" max="1" value="0"></progress>
@@ -116,6 +117,11 @@
     <label>Base URL <input id="llmBase" size="60"></label>
     <label>Model <input id="llmModel" size="60"></label>
     <div class="row"><button id="llmSave" class="primary">Save LLM</button><button id="llmTest">Test connection</button><span id="llmMsg"></span></div>
+    <h3>Speech &amp; vision</h3>
+    <label>Whisper model (local) <select id="whModel"><option value="small">small (fast)</option><option value="medium">medium (recommended for Vietnamese)</option><option value="large-v3">large-v3 (best, slow)</option></select></label>
+    <label>Vision check of frames <select id="visOn"><option value="">off</option><option value="1">on</option></select></label>
+    <label>Vision model <input id="visModel" size="40" placeholder="gemini-3.8-flash"></label>
+    <div class="row"><button id="svSave" class="primary">Save speech/vision</button><span id="svMsg"></span></div>
     <h3>Generation &amp; service keys</h3>
     <p class="hint">Saved to <code id="envPath"></code>. Local tools need no keys; AI generation tools unlock when their key is set.</p>
     <div id="keys"></div><button id="saveKeys" class="primary">Save keys</button> <span id="keysMsg"></span>

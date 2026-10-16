@@ -15,7 +15,7 @@ printf 'python312.zip\n.\nLib\\site-packages\nimport site\n' > vendor/python/pyt
 unzip -q -j ffshared.zip '*/bin/*' -x '*ffplay.exe' -d vendor/ffmpeg
 PIP="${PIP:-python3 -m pip}"
 $PIP install -q --platform win_amd64 --python-version 3.12 --implementation cp --only-binary=:all: \
-  --target vendor/python/Lib/site-packages -r "$REPO/requirements.txt"
+  --target vendor/python/Lib/site-packages -r "$REPO/requirements.txt" -r "$HERE/requirements-studio.txt"
 cat > vendor/ffmpeg/fonts.conf <<'XML'
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">

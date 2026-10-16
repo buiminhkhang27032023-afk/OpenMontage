@@ -169,6 +169,12 @@ AGENT_TOOLS = [
         {"media": {"type": "array", "items": {"type": "string"}}, "target_duration": {"type": "number"},
          "title": {"type": "string"}, "vertical": {"type": "boolean"}, "music": {"type": "string"},
          "transition": {"type": "string"}, "max_shot": {"type": "number"}}, ["media"]),
+    _fn("transcribe_media", "Transcribe speech in a media file locally (faster-whisper, Vietnamese by default) with word timestamps. "
+        "Returns numbered sentences with start/end seconds in SOURCE time. Use it for every clip with speech before choosing cuts.",
+        {"path": {"type": "string"}, "language": {"type": "string"}}, ["path"]),
+    _fn("inspect_frames", "Vision check: extract frames at the given SOURCE times and ask a vision model about quality "
+        "(sharpness, eyes open, framing, expression). Use it to reject bad moments among your candidate segments.",
+        {"path": {"type": "string"}, "times": {"type": "array", "items": {"type": "number"}}, "question": {"type": "string"}}, ["path", "times"]),
     _fn("set_project", "Submit the final editable Studio timeline project (schema v2, see system prompt). It is validated and loaded into the user's timeline.",
         {"project": {"type": "object"}}, ["project"]),
     _fn("render_preview", "Render the current project to an mp4 in the workdir to verify it (optional).", {}),
@@ -177,6 +183,10 @@ AGENT_TOOLS = [
 ]
 
 SIDE_EFFECT_TOOLS = {"run_tool", "render_preview"}
+
+
+def vision_enabled() -> bool:
+    return os.environ.get("OM_VISION_ENABLED", "").lower() in ("1", "true", "yes", "on")
 
 PROJECT_DOC = """Studio project schema v2 (JSON):
 {"version":2,"width":1920,"height":1080,"fps":30,
@@ -206,6 +216,10 @@ class Agent:
         self._last: dict = {}
         self.proxy_to_orig: dict = {}
         self.cfg = llm_config(params.get("llm"))
+        self.vision = bool(params.get("vision", vision_enabled()))
+        self.tools = [t for t in AGENT_TOOLS if self.vision or t["name"] != "inspect_frames"]
+        self.blocked_tools: set = set()
+        self.transcripts: dict = {}
 
     # -- control
     def start(self):
@@ -256,11 +270,18 @@ Rules:
 - Large files have low-res PROXIES (listed with the media). Run analysis tools on the proxy (same timing);
   set_project may use either path (proxies are mapped back to originals for the final export).
 - auto_highlights / set_project / render_preview / finish are built-in functions: call them directly, never via run_tool.
+- SPEECH: for clips with people talking, call transcribe_media first. Choose the strongest COMPLETE sentences
+  (a hook first, then the best lines, a clear ending) and set each main clip's in/out to sentence start/end
+  (from the transcript; cuts are snapped to sentence boundaries automatically). Never cut mid-sentence.
+  Enable burned-in subtitles with top-level "auto_subtitles": {{"style": "tiktok"}} (synced automatically to the
+  final timeline). Do not also add a texts[] line at the bottom that would collide with the subtitles; put titles near the top.
+{"- VISION: inspect_frames is available. Check 2-4 frames inside each candidate segment and avoid blurry, eyes-closed or badly framed moments." if self.vision else ""}
 - Always end with set_project then finish.
 Pipelines:
 {chr(10).join(pipes)}
 {PROJECT_DOC}
-Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is applied after the render."""
+Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is applied after the render.
+Optional top-level "auto_subtitles": {{"style": "tiktok"|"clean", "uppercase": false}} burns styled subtitles from the transcripts."""
 
     def _run_safe(self):
         try:
@@ -305,7 +326,7 @@ Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is appli
             if not self.project and left in (6, 3):
                 messages.append({"role": "user", "content": f"Only {left} steps left. Stop analysing: call set_project now with the best timeline you can build (original media + in/out), then finish."})
             self._compact(messages)
-            resp = llm.chat(messages, AGENT_TOOLS)
+            resp = llm.chat(messages, self.tools)
             self._llm_usage = llm.usage
             if llm.usage:
                 self.emit("usage", **llm.usage)
@@ -340,6 +361,65 @@ Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is appli
                                        "width": opts.get("width"), "height": opts.get("height")})
                 self._exec("set_project", {"project": proj})
 
+    def _snap_to_sentences(self, proj):
+        import transcribe as T
+        notes = []
+        main = next((t for t in proj.get("tracks", []) if t.get("main")), None)
+        for i, c in enumerate((main or {}).get("clips", [])):
+            if c.get("is_image"):
+                continue
+            tr = self.transcripts.get(c["path"]) or T.find_cached(c["path"])
+            if not tr or not tr.get("sentences"):
+                continue
+            S = tr["sentences"]
+            a = float(c.get("in") or 0); b = float(c["out"]) if c.get("out") not in (None, "") else tr["duration"]
+            # snap each edge to the NEAREST sentence boundary (never mid-sentence, never balloon the clip)
+            na = min((x["start"] for x in S), key=lambda v: abs(v - a))
+            ends = [x["end"] for x in S if x["end"] > na + 1.0]
+            if not ends:
+                continue
+            nb = min(ends, key=lambda v: abs(v - b))
+            na = max(0.0, na - 0.12); nb = min(tr["duration"], nb + 0.18)
+            if nb - na < 1.0:
+                continue
+            if abs(na - a) > 0.05 or abs(nb - b) > 0.05:
+                notes.append(f"clip {i + 1}: {a:.2f}-{b:.2f} -> {na:.2f}-{nb:.2f}")
+            c["in"], c["out"] = round(na, 3), round(nb, 3)
+        return notes
+
+    def _inspect_frames(self, a):
+        import base64, subprocess
+        path = a["path"]
+        src = next((q for q, o in self.proxy_to_orig.items() if o == path), path)
+        ff = os.environ.get("FFMPEG_PATH") or "ffmpeg"
+        times = [float(t) for t in (a.get("times") or [])][:8]
+        content = [{"type": "text", "text": (a.get("question") or "") + "\nFor each frame (in order) rate it for use in a short social video. "
+                    "Reply ONLY with JSON: {\"frames\":[{\"t\":seconds,\"sharp\":0-10,\"eyes_open\":true/false,\"framing\":\"good|ok|bad\",\"usable\":true/false,\"note\":\"short\"}]}"}]
+        for t in times:
+            r = subprocess.run([ff, "-v", "error", "-ss", str(t), "-i", src, "-frames:v", "1", "-vf", "scale=-2:480", "-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "-"], capture_output=True)
+            if r.stdout:
+                content.append({"type": "text", "text": f"frame t={t}"})
+                content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(r.stdout).decode()}})
+        model = os.environ.get("OM_VISION_MODEL") or "gemini-3.8-flash"
+        cfg = dict(self.cfg, model=model)
+        if cfg["provider"] in ("anthropic", "mock"):
+            return {"error": "vision via this provider is not supported; use an OpenAI-compatible provider"}
+        h = {"Content-Type": "application/json", **({"Authorization": f"Bearer {cfg['api_key']}"} if cfg["api_key"] else {})}
+        r = requests.post(cfg["base_url"] + "/chat/completions", headers=h, timeout=180,
+                          json={"model": model, "messages": [{"role": "user", "content": content}]})
+        if r.status_code >= 400:
+            return {"error": f"vision HTTP {r.status_code}: {r.text[:300]}"}
+        j = r.json()
+        if hasattr(self, "_llm") and self._llm:
+            self._llm._usage(j.get("usage") or {}, "prompt_tokens", "completion_tokens")
+        txt = j["choices"][0]["message"].get("content") or ""
+        import re as _re
+        m = _re.search(r"\{.*\}", txt, _re.S)
+        try:
+            return json.loads(m.group(0)) if m else {"raw": txt[:2000]}
+        except json.JSONDecodeError:
+            return {"raw": txt[:2000]}
+
     def _compact(self, messages):
         """Shrink old tool results so long sessions don't resend huge histories."""
         idx = [i for i, m in enumerate(messages) if m["role"] == "tool"]
@@ -359,10 +439,17 @@ Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is appli
                 continue
             if not i.get("has_video") or i.get("is_image") or max(i.get("width") or 0, i.get("height") or 0) <= 1920:
                 continue
-            q = self.workdir / ("proxy_" + Path(m).stem.replace(" ", "_") + ".mp4")
+            st = os.stat(m)
+            pdir = self.workdir.parent.parent / "proxies"; pdir.mkdir(parents=True, exist_ok=True)
+            q = pdir / (f"proxy_{Path(m).stem.replace(' ', '_')}_{st.st_size}_{int(st.st_mtime)}.mp4")
+            if q.exists() and q.stat().st_size > 0:
+                out[m] = str(q); self.proxy_to_orig[str(q)] = m
+                continue
             self.emit("message", text=f"Creating analysis proxy for {Path(m).name} …")
             r = subprocess.run([ff, "-y", "-v", "error", "-i", m, "-vf", "scale='if(gt(iw,ih),960,-2)':'if(gt(iw,ih),-2,960)',fps=30",
-                                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", str(q)], capture_output=True)
+                                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", str(q) + ".tmp.mp4"], capture_output=True)
+            if r.returncode == 0:
+                os.replace(str(q) + ".tmp.mp4", q)
             if r.returncode == 0:
                 out[m] = str(q); self.proxy_to_orig[str(q)] = m
         return out
@@ -453,12 +540,38 @@ Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is appli
                 pass
             except jsonschema.ValidationError as e:
                 return {"error": f"invalid inputs for {t.name}: {e.message}", "input_schema": t.input_schema}
+            # analysis tools run on the low-res proxy automatically (same timing, much faster)
+            if t.capability == "analysis":
+                inp = dict(a.get("inputs") or {})
+                for k in ("input_path", "source", "video_path"):
+                    v = inp.get(k)
+                    prox = next((q for q, o in self.proxy_to_orig.items() if o == v), None)
+                    if prox:
+                        inp[k] = prox
+                a = dict(a, inputs=inp)
+            if t.name in self.blocked_tools:
+                return {"error": f"{t.name} is blocked for this session (it failed with HTTP 403). Do not use it."}
             r = t.execute(a.get("inputs") or {})
+            if not r.success and r.error and ("403" in r.error or "Forbidden" in r.error):
+                self.blocked_tools.add(t.name)
             return {"success": r.success, "data": r.data, "error": r.error, "artifacts": getattr(r, "artifacts", [])}
         if name == "probe_media":
             return self.probe({"path": a["path"]})
         if name == "auto_highlights":
             return self.auto_edit(a)
+        if name == "transcribe_media":
+            import transcribe as T
+            path = self.proxy_to_orig.get(a["path"], a["path"])
+            def prog(d):
+                if d.get("stage") == "download":
+                    self.emit("message", text=f"Downloading speech model: {d.get('file')} {d.get('done', 0) // (1 << 20)}/{max(1, d.get('total', 0)) // (1 << 20)} MB")
+            self.emit("message", text=f"Transcribing {Path(path).name} …")
+            tr = T.transcribe(path, language=a.get("language") or "vi", progress=prog)
+            self.transcripts[path] = tr
+            return {"path": path, "duration": round(tr["duration"], 2), "model": tr["model"],
+                    "sentences": [{"id": x["id"], "start": x["start"], "end": x["end"], "text": x["text"]} for x in tr["sentences"]]}
+        if name == "inspect_frames":
+            return self._inspect_frames(a)
         if name == "set_project":
             from compiler import build, upgrade
             proj = upgrade(a["project"])
@@ -470,10 +583,11 @@ Optional top-level "post": {{"color_grade": ..., "audio_enhance": ...}} is appli
                             c["duration"] = self.probe({"path": c["path"]})["duration"]
                         except Exception:
                             pass
+            notes = self._snap_to_sentences(proj)
             build(proj)  # validates structure
             self.project = proj
             self.emit("project", project=proj)
-            return {"ok": True, "message": "Project loaded into the user's timeline."}
+            return {"ok": True, "message": "Project loaded into the user's timeline.", "sentence_snapping": notes}
         if name == "render_preview":
             if not self.project:
                 return {"error": "call set_project first"}

@@ -38,6 +38,12 @@ const b = bridge();
   const r3 = await b.call('render_project', { project: { width: 320, height: 180, preset: 'ultrafast', output: `${t}/ax.mp4`,
     tracks: [{ kind: 'video', main: true, clips: [{ path: `${t}/pip.mp4`, in: 0, out: 3, duration: 4, has_audio: true, transition: { type: 'fade', duration: 1 } }, { path: `${t}/pip.mp4`, in: 0, out: 3, duration: 4, has_audio: true }] }] } });
   ok(meanVolume(r3.output, 1.8, 0.8) > -30, 'audio crossfade keeps sound through transition');
+  // 2b) mixed cut + xfade chain from 60 fps sources (regression: xfade timebase mismatch)
+  ff('-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=60:duration=4', '-f', 'lavfi', '-i', 'sine=f=500:d=4', '-shortest', `${t}/p60.mp4`);
+  const P = (extra) => ({ path: `${t}/p60.mp4`, in: 0, out: 3, duration: 4, has_audio: true, ...extra });
+  const r5 = await b.call('render_project', { project: { width: 320, height: 568, fps: 30, preset: 'ultrafast', output: `${t}/mixed.mp4`,
+    tracks: [{ kind: 'video', main: true, clips: [P({ transition: { type: 'dissolve', duration: 0.5 } }), P({}), P({ transition: { type: 'slideleft', duration: 0.5 } }), P({})] }] } });
+  ok(Math.abs(r5.duration - 11) < 0.05 && Math.abs(+probe(r5.output).format.duration - 11) < 0.2, `mixed xfade/cut/xfade chain from 60fps sources (${r5.duration}s)`);
   // 3) v1 project still supported
   const r4 = await b.call('render_project', { project: { width: 320, height: 180, output: `${t}/v1.mp4`, preset: 'ultrafast', clips: [{ path: `${t}/red.mp4`, start: 0, end: 2, has_audio: false }] } });
   ok(Math.abs(r4.duration - 2) < 0.05, 'legacy v1 project renders');

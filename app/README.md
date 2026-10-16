@@ -27,6 +27,16 @@ Anthropic, local Ollama, or any OpenAI-compatible URL. Without generation keys i
 with local tools (`auto_highlights`, scene detection, silence cutting, subtitles, color grade, music bed).
 **⚡ Quick auto-edit (no AI)** does a highlight edit with no LLM at all.
 
+## Speech, subtitles & vision
+- **Transcription**: local faster-whisper (default `medium`, int8 CPU, VAD, word timestamps; Settings → Speech).
+  The model downloads on first use (progress shown) into `<work dir>/models`; transcripts are cached.
+  Bin items have a **Transcribe** button; the AI Director calls `transcribe_media` and cuts on sentence
+  boundaries (edges are snapped to the nearest sentence start/end automatically).
+- **Auto subtitles**: Export → Auto subtitles (TikTok word-highlight or Clean). Generated at export time from
+  the transcripts and mapped through cuts, speed and transitions, so they stay in sync after any edit.
+- **Vision check** (optional, Settings): the AI Director can send frames of candidate segments to a vision
+  model on the same OpenAI-compatible endpoint (default `gemini-3.8-flash`) to avoid blurry / eyes-closed shots.
+
 ## Timeline
 Main track V1 (clips back-to-back with xfade transitions: fade, dissolve, wipe*, slide*, zoomin,
 circleopen, radial, pixelize… + audio crossfade), any number of overlay tracks (picture-in-picture

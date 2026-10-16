@@ -475,15 +475,20 @@ class AudioMixer(BaseTool):
             inputs.get("output_path", str(input_path.with_suffix(".wav")))
         )
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vn",
-            "-acodec", "pcm_s16le",
-            "-ar", "16000",
-            "-ac", "1",
-            str(output_path),
-        ]
+        # Pick a codec that matches the container (pcm in .m4a/.mp3 is invalid).
+        ext = output_path.suffix.lower()
+        codec_args = {
+            ".m4a": ["-c:a", "aac", "-b:a", "192k"],
+            ".aac": ["-c:a", "aac", "-b:a", "192k"],
+            ".mp4": ["-c:a", "aac", "-b:a", "192k"],
+            ".mp3": ["-c:a", "libmp3lame", "-q:a", "2"],
+            ".flac": ["-c:a", "flac"],
+            ".ogg": ["-c:a", "libopus", "-b:a", "128k"],
+            ".opus": ["-c:a", "libopus", "-b:a", "128k"],
+        }.get(ext)
+        if codec_args is None:  # .wav and unknown: 16 kHz mono PCM (ASR-friendly default)
+            codec_args = ["-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1"]
+        cmd = ["ffmpeg", "-y", "-i", str(input_path), "-vn", *codec_args, str(output_path)]
 
         self.run_command(cmd)
 

@@ -14,6 +14,7 @@ om.onEvent((m) => {
   if (m.event === 'progress') $('#prog').value = m.data;
   else if (m.event === 'log' || m.event === 'stderr') log(String(m.data).trimEnd());
   else if (m.event === 'agent') onAgent(m.data);
+  else if (m.event === 'transcribe_progress') { const d = m.data; $('#status').textContent = d.stage === 'download' ? `downloading speech model ${d.file} ${(d.done / 1048576).toFixed(0)}/${(d.total / 1048576).toFixed(0)} MB` : `transcribing ${(100 * d.done / (d.total || 1)).toFixed(0)}%`; }
   else if (m.event === 'exit') { $('#status').textContent = 'backend stopped (' + m.data + ')'; $('#status').style.color = '#c77'; }
 });
 
@@ -35,10 +36,11 @@ function renderBin() {
     ${m.thumb ? `<img src="${fileUrl(m.thumb)}">` : '🎵'}<div>${esc(m.name)}</div>
     <div class="hint">${m.is_image ? 'image' : m.duration.toFixed(2) + 's'} ${m.width ? m.width + '×' + m.height : ''}</div>
     ${m.has_video ? `<button class="mini" data-add="${i}">+V1</button><button class="mini" data-ov="${i}">+PiP</button>` : ''}
-    ${m.has_audio ? `<button class="mini" data-aud="${i}">+Audio</button>` : ''}</div>`).join('') || '<p class="hint">Import or drop files here, then drag them onto a track.</p>';
+    ${m.has_audio ? `<button class="mini" data-aud="${i}">+Audio</button><button class="mini" data-tr="${i}">Transcribe</button>` : ''}</div>`).join('') || '<p class="hint">Import or drop files here, then drag them onto a track.</p>';
   $('#bin').querySelectorAll('.item').forEach((d) => d.ondragstart = (e) => e.dataTransfer.setData('bin', d.dataset.i));
   $('#bin').querySelectorAll('[data-add]').forEach((b) => b.onclick = () => TL.addMedia(state.bin[b.dataset.add], 'video'));
   $('#bin').querySelectorAll('[data-ov]').forEach((b) => b.onclick = () => TL.addMedia(state.bin[b.dataset.ov], 'overlay'));
+  $('#bin').querySelectorAll('[data-tr]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = '…'; try { const r = await om.call('transcribe', { path: state.bin[b.dataset.tr].path }); log(r.sentences.map((x) => `[${x.start.toFixed(1)}-${x.end.toFixed(1)}] ${x.text}`).join('\n')); b.textContent = '✔ ' + r.sentences.length + ' sentences (see Log)'; } catch (e) { b.textContent = '✖'; alert(e.message); } });
   $('#bin').querySelectorAll('[data-aud]').forEach((b) => b.onclick = () => TL.addMedia(state.bin[b.dataset.aud], 'audio'));
 }
 $('#import').onclick = async () => importFiles(await om.openFiles({ multi: true }));
@@ -146,7 +148,7 @@ window.addEventListener('resize', () => TL.render());
 // ---------- export
 function exportProject(output) {
   const [w, h] = $('#preset').value.split('x').map(Number);
-  return { ...TL.proj, width: w, height: h, fps: +$('#fps').value, crf: +$('#crf').value, subtitle_path: $('#subs').value || null, output,
+  return { ...TL.proj, width: w, height: h, fps: +$('#fps').value, crf: +$('#crf').value, subtitle_path: $('#subs').value || null, output, auto_subtitles: $('#autosub').value ? { style: $('#autosub').value } : null,
     post: { color_grade: $('#grade').value || null, audio_enhance: $('#aenh').value || null } };
 }
 async function doRender(proj, label) {
@@ -174,6 +176,7 @@ function loadProject(p) {
   TL.commit(); TL.proj = { version: 2, texts: p.texts || [], tracks: p.tracks }; TL.sel = null;
   if (p.width) { const v = `${p.width}x${p.height}`; if ([...$('#preset').options].some((o) => o.value === v)) $('#preset').value = v; }
   if (p.subtitle_path) $('#subs').value = p.subtitle_path;
+  $('#autosub').value = p.auto_subtitles ? (p.auto_subtitles.style || 'tiktok') : '';
   if (p.post) { if (p.post.color_grade) $('#grade').value = p.post.color_grade; if (p.post.audio_enhance) $('#aenh').value = p.post.audio_enhance; }
   if (p.bin) state.bin = p.bin;
   // make sure every referenced file is in the bin (thumbnails, names)
@@ -262,7 +265,8 @@ async function loadPipelines() {
 let LLMP = {};
 async function loadSettings() {
   const s = await om.call('get_settings', {}); $('#envPath').textContent = s.path; LLMP = s.llm_providers || {};
-  const llmKeys = ['OM_LLM_PROVIDER', 'OM_LLM_API_KEY', 'OM_LLM_BASE_URL', 'OM_LLM_MODEL', 'OM_LLM_MOCK_SCRIPT'];
+  $('#whModel').value = s.values.OM_WHISPER_MODEL || 'medium'; $('#visOn').value = /^(1|true|on|yes)$/i.test(s.values.OM_VISION_ENABLED || '') ? '1' : ''; $('#visModel').value = s.values.OM_VISION_MODEL || '';
+  const llmKeys = ['OM_WHISPER_MODEL', 'OM_VISION_ENABLED', 'OM_VISION_MODEL', 'OM_LLM_PROVIDER', 'OM_LLM_API_KEY', 'OM_LLM_BASE_URL', 'OM_LLM_MODEL', 'OM_LLM_MOCK_SCRIPT'];
   const keys = [...new Set([...s.keys, 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', ...Object.keys(s.values)])].filter((k) => !llmKeys.includes(k));
   $('#keys').innerHTML = keys.map((k) => `<label>${esc(k)}<input data-key="${esc(k)}" size="60" type="${/KEY|TOKEN|SECRET/.test(k) ? 'password' : 'text'}" value="${esc(s.values[k] || '')}"></label>`).join('');
   $('#llmProv').innerHTML = Object.keys(LLMP).map((p) => `<option ${p === (s.values.OM_LLM_PROVIDER || 'openai') ? 'selected' : ''}>${p}</option>`).join('');
@@ -281,6 +285,7 @@ $('#llmTest').onclick = async () => {
   try { const r = await om.call('llm_test', { llm: { provider: $('#llmProv').value, api_key: $('#llmKey').value.trim() || undefined, base_url: $('#llmBase').value.trim() || undefined, model: $('#llmModel').value.trim() || undefined } }); $('#llmMsg').textContent = `✅ ${r.provider}/${r.model}: ${r.reply}`; }
   catch (e) { $('#llmMsg').textContent = '❌ ' + e.message; }
 };
+$('#svSave').onclick = async () => { await om.call('save_settings', { values: { OM_WHISPER_MODEL: $('#whModel').value, OM_VISION_ENABLED: $('#visOn').value, OM_VISION_MODEL: $('#visModel').value.trim() } }); $('#svMsg').textContent = 'Saved ✔'; };
 $('#saveKeys').onclick = async () => {
   const values = {}; document.querySelectorAll('[data-key]').forEach((i) => values[i.dataset.key] = i.value.trim());
   await om.call('save_settings', { values }); $('#keysMsg').textContent = 'Saved ✔'; TOOLS = await om.call('list_tools', {}); renderToolList();
@@ -319,6 +324,7 @@ function onAgent(d) {
     case 'finish': step('msg', '🏁 ' + esc(d.summary)); break;
     case 'error': step('err', '❌ ' + esc(d.message)); break;
     case 'cancelled': step('err', '■ cancelled'); break;
+    case 'usage': $('#dLlm').textContent = `tokens: ${d.prompt_tokens} in / ${d.completion_tokens} out · ${d.calls} calls`; break;
     case 'done': agentRunning(false); $('#status').textContent = 'backend ready'; break;
   }
 }

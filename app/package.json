@@ -17,8 +17,9 @@
     "test:agent": "node test/agent.test.js",
     "test:llm": "node -e \"require('child_process').execFileSync(require('./test/helpers').PY,['test/llm_client_test.py'],{stdio:'inherit'})\"",
     "test:ui": "node test/ui.test.js",
-    "test": "npm run -s test:backend && npm run -s test:multitrack && npm run -s test:agent && npm run -s test:llm && npm run -s test:ui",
-    "vendor:win": "bash scripts/fetch-win-vendor.sh"
+    "test": "npm run -s test:backend && npm run -s test:multitrack && npm run -s test:agent && npm run -s test:llm && npm run -s test:subs && npm run -s test:ui",
+    "vendor:win": "bash scripts/fetch-win-vendor.sh",
+    "test:subs": "node -e \"require('child_process').execFileSync(require('./test/helpers').PY,['test/subtitles_test.py'],{stdio:'inherit'})\""
   },
   "build": {
     "appId": "video.openmontage.studio",
@@ -47,7 +48,8 @@
           "!**/__pycache__/**",
           "!**/node_modules/**",
           "!.venv/**",
-          "!app/dist/**"
+          "!app/dist/**",
+          "app/requirements-studio.txt"
         ]
       },
       {
