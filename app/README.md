@@ -3,6 +3,43 @@
 A standalone Electron video editor built on top of OpenMontage. It lets you use
 OpenMontage's editing tools **directly from a GUI** — no AI coding assistant needed.
 
+## Windows (download & run)
+Use **`OpenMontage-Studio-win.exe`** (portable, no install) or unzip `OpenMontage Studio-0.1.0-win.zip`
+and run `OpenMontage Studio.exe`. The Windows build is self-contained: it ships an embedded
+Python 3.12 with all `requirements.txt` packages and FFmpeg (BtbN win64 GPL build), used automatically.
+Exports, previews and AI Director work files go to `Documents\OpenMontage Studio`; keys are stored in
+`%APPDATA%\OpenMontage Studio\.env`. The app is unsigned, so SmartScreen may warn → “More info” → “Run anyway”.
+
+Build it yourself (works from Linux/macOS too):
+```bash
+cd app && npm install
+npm run vendor:win            # downloads embeddable Python + wheels + FFmpeg into ../../winbuild/vendor
+npx electron-builder --win    # -> dist/OpenMontage-Studio-win.exe (portable) + win zip
+```
+
+## AI Director (prompt → edited video)
+Type what you want (Vietnamese works), attach media, pick a pipeline or “auto”, choose auto-run or
+approve-each-tool mode, then Start. The LLM acts as the agent the repo's skill files describe: it reads
+`pipeline_defs/` and `skills/`, inspects media, calls OpenMontage tools via function calling (step log,
+approve/reject/edit each call, cancel), and delivers an **editable project loaded into the timeline**.
+Providers (Settings → AI Director): OpenAI, xAI/Grok, OpenRouter, Gemini (OpenAI-compatible endpoint),
+Anthropic, local Ollama, or any OpenAI-compatible URL. Without generation keys it builds from your own media
+with local tools (`auto_highlights`, scene detection, silence cutting, subtitles, color grade, music bed).
+**⚡ Quick auto-edit (no AI)** does a highlight edit with no LLM at all.
+
+## Timeline
+Main track V1 (clips back-to-back with xfade transitions: fade, dissolve, wipe*, slide*, zoomin,
+circleopen, radial, pixelize… + audio crossfade), any number of overlay tracks (picture-in-picture
+with position/scale/opacity), any number of audio tracks (offset, loop, fades, waveform view).
+Drag to move, drag edges to trim, snapping, zoom (slider / Ctrl+wheel), undo/redo.
+Shortcuts: Space play · S split · Delete · Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y · Ctrl+D duplicate ·
+←/→ frame step (Shift = 1 s) · Home/End · +/- zoom · Ctrl+S save.
+
+## Tests
+`npm test` runs: backend smoke, multitrack/transition exports verified by ffprobe + pixel sampling +
+loudness, mocked-LLM agent loop producing a real export, LLM client protocol tests, and an xvfb UI test
+that drives the timeline and saves screenshots (`OM_SCREENS=/path`).
+
 ## Features
 - **Editor**: import video/images/audio (button or drag & drop), media bin with thumbnails,
   timeline with per-clip IN/OUT trim, split at playhead, reorder, duplicate, delete,
@@ -49,8 +86,6 @@ The target machine still needs **Python 3.10+ with `requirements.txt` installed*
 set `OPENMONTAGE_PYTHON` if that python isn't `python3`/`python` on PATH.
 
 ## Limits
-- Pipelines' creative stages (idea, script, scene plan) were designed for an AI agent; in Studio
-  you do those yourself and run each stage's tools manually. No automatic "prompt → video".
-- Timeline is a single video track (sequential clips) + text overlays + audio tracks; no
-  transitions between clips beyond fades (use the `video_stitch` tool for crossfades).
+- Live preview follows the main track only; transitions, PiP and text are shown exactly via “Render preview”.
+- Main track is sequential (no gaps); overlays/audio are free-positioned.
 - Remotion/HyperFrames renders require Node deps in `remotion-composer/` (see main README).

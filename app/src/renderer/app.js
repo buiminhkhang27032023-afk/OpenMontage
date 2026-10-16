@@ -161,7 +161,7 @@ async function doRender(proj, label) {
 }
 $('#render').onclick = async () => { const out = await om.saveFile({ defaultPath: 'export.mp4', filters: [{ name: 'MP4', extensions: ['mp4'] }] }); if (out) doRender(exportProject(out), 'Rendering'); };
 $('#renderPrev').onclick = async () => {
-  const root = await om.root(); const p = exportProject(root.replace(/[\\/]$/, '') + '/projects/studio_preview.mp4');
+  const root = await om.workdir(); const p = exportProject(root.replace(/[\\/]$/, '') + '/studio_preview.mp4');
   const r = await doRender({ ...p, width: Math.round(p.width / 3 / 2) * 2, height: Math.round(p.height / 3 / 2) * 2, crf: 30, preset: 'ultrafast', post: {} }, 'Rendering preview');
   if (r) { togglePlay(false); curClip = -2; video.src = fileUrl(r.output) + '?t=' + Date.now(); video.play(); }
 };

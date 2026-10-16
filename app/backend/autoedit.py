@@ -15,7 +15,8 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
 
 
 def _energy(path: str, sr: int = 2000):
-    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
+    import os
+    r = subprocess.run([os.environ.get("FFMPEG_PATH") or "ffmpeg", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
                        capture_output=True)
     a = np.abs(np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0)
     return a, sr

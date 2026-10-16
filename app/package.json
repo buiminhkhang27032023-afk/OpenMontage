@@ -17,7 +17,8 @@
     "test:agent": "node test/agent.test.js",
     "test:llm": "node -e \"require('child_process').execFileSync(require('./test/helpers').PY,['test/llm_client_test.py'],{stdio:'inherit'})\"",
     "test:ui": "node test/ui.test.js",
-    "test": "npm run -s test:backend && npm run -s test:multitrack && npm run -s test:agent && npm run -s test:llm && npm run -s test:ui"
+    "test": "npm run -s test:backend && npm run -s test:multitrack && npm run -s test:agent && npm run -s test:llm && npm run -s test:ui",
+    "vendor:win": "bash scripts/fetch-win-vendor.sh"
   },
   "build": {
     "appId": "video.openmontage.studio",
@@ -43,12 +44,15 @@
           "skills/**",
           "config.yaml",
           "requirements.txt",
-          ".env.example",
           "!**/__pycache__/**",
           "!**/node_modules/**",
           "!.venv/**",
           "!app/dist/**"
         ]
+      },
+      {
+        "from": "../.env.example",
+        "to": "openmontage/.env.example"
       }
     ],
     "linux": {
@@ -59,7 +63,29 @@
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "../../winbuild/vendor/python",
+          "to": "python"
+        },
+        {
+          "from": "../../winbuild/vendor/ffmpeg",
+          "to": "ffmpeg"
+        }
       ]
     },
     "mac": {
@@ -67,6 +93,9 @@
         "dmg"
       ],
       "category": "public.app-category.video"
+    },
+    "portable": {
+      "artifactName": "OpenMontage-Studio-win.exe"
     }
   },
   "devDependencies": {

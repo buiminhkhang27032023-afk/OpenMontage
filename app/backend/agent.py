@@ -172,7 +172,7 @@ class Agent:
         self.root, self.auto_edit, self.render = Path(root), auto_edit, render
         self.mode = params.get("mode", "auto")  # auto | approve
         self.max_steps = int(params.get("max_steps", 40))
-        self.workdir = self.root / "projects" / "studio_agent" / time.strftime("%Y%m%d-%H%M%S")
+        self.workdir = Path(os.environ.get("OM_WORK_DIR") or (self.root / "projects")) / "studio_agent" / time.strftime("%Y%m%d-%H%M%S")
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.running, self._cancel = False, threading.Event()
         self._approvals: dict[str, dict] = {}

@@ -22,7 +22,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
+import os
+FFMPEG = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg") or "ffmpeg"
 
 XFADE_TYPES = ["fade", "dissolve", "fadeblack", "fadewhite", "wipeleft", "wiperight", "wipeup", "wipedown",
                "slideleft", "slideright", "slideup", "slidedown", "smoothleft", "smoothright", "circleopen",
@@ -62,6 +63,16 @@ def _atempo(speed: float) -> str:
         parts.append("atempo=0.5"); s /= 0.5
     parts.append(f"atempo={s:.6f}")
     return ",".join(parts)
+
+
+def _default_font():
+    """Windows FFmpeg builds have no fontconfig defaults: point drawtext at Arial (has Vietnamese glyphs)."""
+    if os.name == "nt":
+        for f in ("arial.ttf", "segoeui.ttf", "tahoma.ttf"):
+            p = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / f
+            if p.exists():
+                return str(p)
+    return None
 
 
 def _esc_text(s: str) -> str:
@@ -207,8 +218,9 @@ def build(project: dict, progress: bool = True):
               f"fontcolor={tx.get('color', 'white')}:x={tx.get('x') or '(w-text_w)/2'}:y={tx.get('y') or 'h-text_h-60'}:"
               f"box={1 if tx.get('box', True) else 0}:boxcolor=black@0.45:boxborderw=12:"
               f"enable='between(t,{float(tx.get('start', 0))},{float(tx.get('end', total))})'")
-        if tx.get("fontfile"):
-            dt += f":fontfile='{tx['fontfile']}'"
+        font = tx.get("fontfile") or _default_font()
+        if font:
+            dt += ":fontfile='" + font.replace("\\", "/").replace(":", "\\:") + "'"
         F.append(f"{cv}{dt}[tx{j}]"); cv = f"[tx{j}]"
     if project.get("subtitle_path"):
         sp_ = str(project["subtitle_path"]).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
@@ -219,7 +231,7 @@ def build(project: dict, progress: bool = True):
         aout = "[aout]"
     else:
         aout = ca
-    out = project.get("output") or str(Path.cwd() / "projects" / "studio_export.mp4")
+    out = project.get("output") or str(Path(os.environ.get("OM_WORK_DIR") or (Path.cwd() / "projects")) / "studio_export.mp4")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     cmd = [FFMPEG, "-y", "-v", "error"] + (["-progress", "pipe:2"] if progress else []) + inp.args + [
         "-filter_complex", ";".join(F), "-map", cv, "-map", aout,

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('om', {
   loadJson: (f) => ipcRenderer.invoke('load-json', f),
   reveal: (p) => ipcRenderer.invoke('reveal', p),
   pathFor: (f) => (webUtils && webUtils.getPathForFile ? webUtils.getPathForFile(f) : f.path),
+  workdir: () => ipcRenderer.invoke('workdir'),
   root: () => ipcRenderer.invoke('root'),
   onEvent: (cb) => ipcRenderer.on('backend-event', (_e, m) => cb(m)),
 });

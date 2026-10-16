@@ -8,8 +8,14 @@ const ROOT = app.isPackaged
   ? path.join(process.resourcesPath, 'openmontage')
   : path.resolve(__dirname, '..', '..');
 
+// Bundled runtimes (Windows build ships embeddable Python + FFmpeg in resources/)
+const VENDOR_PY = path.join(process.resourcesPath || '', 'python', process.platform === 'win32' ? 'python.exe' : 'bin/python3');
+const VENDOR_FF = path.join(process.resourcesPath || '', 'ffmpeg');
+const WORK_DIR = app.isPackaged ? path.join(app.getPath('documents'), 'OpenMontage Studio') : path.join(ROOT, 'projects');
+
 function findPython() {
   if (process.env.OPENMONTAGE_PYTHON) return process.env.OPENMONTAGE_PYTHON;
+  if (app.isPackaged && fs.existsSync(VENDOR_PY)) return VENDOR_PY;
   const cands = process.platform === 'win32'
     ? [path.join(ROOT, '.venv', 'Scripts', 'python.exe'), 'python']
     : [path.join(ROOT, '.venv', 'bin', 'python'), 'python3'];
@@ -20,8 +26,17 @@ let win, py, nextId = 1;
 const pending = new Map();
 
 function startBackend() {
+  const env = { ...process.env };
+  if (app.isPackaged && fs.existsSync(VENDOR_FF)) {
+    env.PATH = VENDOR_FF + path.delimiter + (env.PATH || env.Path || '');
+    env.Path = env.PATH;
+    env.FFMPEG_PATH = path.join(VENDOR_FF, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+    if (fs.existsSync(path.join(VENDOR_FF, 'fonts.conf'))) { env.FONTCONFIG_FILE = path.join(VENDOR_FF, 'fonts.conf'); env.FONTCONFIG_PATH = VENDOR_FF; }
+    env.FFPROBE_PATH = path.join(VENDOR_FF, process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+  }
+  fs.mkdirSync(WORK_DIR, { recursive: true });
   py = spawn(findPython(), [path.join(ROOT, 'app', 'backend', 'bridge.py')], {
-    cwd: ROOT, env: { ...process.env, OPENMONTAGE_ROOT: ROOT, PYTHONUNBUFFERED: '1',
+    cwd: ROOT, windowsHide: true, env: { ...env, OPENMONTAGE_ROOT: ROOT, OM_WORK_DIR: WORK_DIR, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
       ...(app.isPackaged ? { OPENMONTAGE_ENV: path.join(app.getPath('userData'), '.env') } : {}) },
   });
   readline.createInterface({ input: py.stdout }).on('line', (line) => {
@@ -87,6 +102,7 @@ ipcMain.handle('save-json', (_e, file, data) => fs.writeFileSync(file, JSON.stri
 ipcMain.handle('load-json', (_e, file) => JSON.parse(fs.readFileSync(file, 'utf8')));
 ipcMain.handle('reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('root', () => ROOT);
+ipcMain.handle('workdir', () => WORK_DIR);
 
 app.whenReady().then(() => { startBackend(); createWindow(); });
 app.on('window-all-closed', () => { py && py.kill(); app.quit(); });
