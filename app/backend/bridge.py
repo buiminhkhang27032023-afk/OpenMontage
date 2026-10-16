@@ -22,6 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(os.environ.get("OPENMONTAGE_ROOT", Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.chdir(REPO_ROOT)
 
 _OUT = sys.stdout
@@ -32,9 +33,14 @@ FFMPEG = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = os.environ.get("FFPROBE_PATH") or shutil.which("ffprobe") or "ffprobe"
 
 
+import threading
+_LOCK = threading.Lock()
+
+
 def send(obj):
-    _OUT.write(json.dumps(obj, default=str) + "\n")
-    _OUT.flush()
+    with _LOCK:
+        _OUT.write(json.dumps(obj, default=str) + "\n")
+        _OUT.flush()
 
 
 def log(msg):
@@ -134,7 +140,9 @@ def m_get_settings(params):
             if "=" in line and not line.strip().startswith("#"):
                 k, v = line.split("=", 1)
                 current[k.strip()] = v.strip()
-    return {"keys": env_keys(), "values": current, "path": str(ENV_PATH)}
+    from agent import PROVIDERS
+    return {"keys": env_keys(), "values": current, "path": str(ENV_PATH),
+            "llm_providers": {k: {"base_url": v[0], "model": v[1], "key_env": v[2]} for k, v in PROVIDERS.items()}}
 
 
 def m_save_settings(params):
@@ -185,88 +193,68 @@ def m_thumbnail(params):
     return str(dst)
 
 
-def _esc_text(s):
-    return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019").replace("%", "\\%")
-
-
 def build_render_cmd(project):
-    """Translate a Studio project JSON into one ffmpeg command."""
-    W = int(project.get("width", 1280)); H = int(project.get("height", 720))
-    fps = int(project.get("fps", 30))
-    clips = project.get("clips", [])
-    if not clips:
-        raise ValueError("Timeline is empty")
-    cmd = [FFMPEG, "-y", "-v", "error", "-progress", "pipe:2"]
-    filters, vlabels, alabels = [], [], []
-    total = 0.0
-    idx = 0
-    for i, c in enumerate(clips):
-        start = float(c.get("start", 0)); end = c.get("end")
-        speed = float(c.get("speed", 1) or 1)
-        if c.get("is_image"):
-            dur = float(c.get("duration", 3))
-            cmd += ["-loop", "1", "-t", str(dur), "-i", c["path"]]
-            seg = dur
-        else:
-            cmd += ["-ss", str(start)] + (["-to", str(end)] if end not in (None, "") else []) + ["-i", c["path"]]
-            seg = ((float(end) if end not in (None, "") else float(c.get("duration", 0))) - start)
-        seg = seg / speed
-        vf = (f"[{idx}:v]setpts=(PTS-STARTPTS)/{speed},scale={W}:{H}:force_original_aspect_ratio=decrease,"
-              f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format=yuv420p")
-        if c.get("fade_in"):
-            vf += f",fade=t=in:st=0:d={float(c['fade_in'])}"
-        if c.get("fade_out"):
-            vf += f",fade=t=out:st={max(seg - float(c['fade_out']), 0)}:d={float(c['fade_out'])}"
-        filters.append(vf + f"[v{i}]")
-        vol = float(c.get("volume", 1))
-        if c.get("has_audio") and not c.get("is_image") and not c.get("mute"):
-            at = []
-            s = speed
-            while s > 2.0: at.append("atempo=2.0"); s /= 2.0
-            while s < 0.5: at.append("atempo=0.5"); s /= 0.5
-            at.append(f"atempo={s}")
-            filters.append(f"[{idx}:a]asetpts=PTS-STARTPTS,{','.join(at)},volume={vol},"
-                           f"aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:{seg}[a{i}]")
-        else:
-            filters.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{seg}[a{i}]")
-        vlabels.append(f"[v{i}]"); alabels.append(f"[a{i}]")
-        total += seg
-        idx += 1
-    filters.append("".join(f"{v}{a}" for v, a in zip(vlabels, alabels)) + f"concat=n={len(clips)}:v=1:a=1[vc][ac]")
-    vcur = "[vc]"
-    for j, t in enumerate(project.get("texts", [])):
-        font = t.get("fontfile")
-        dt = (f"drawtext=text='{_esc_text(t['text'])}':fontsize={int(t.get('size', 48))}:"
-              f"fontcolor={t.get('color', 'white')}:x={t.get('x', '(w-text_w)/2')}:y={t.get('y', 'h-text_h-60')}:"
-              f"box={1 if t.get('box', True) else 0}:boxcolor=black@0.45:boxborderw=12:"
-              f"enable='between(t,{float(t.get('start', 0))},{float(t.get('end', total))})'")
-        if font:
-            dt += f":fontfile='{font}'"
-        filters.append(f"{vcur}{dt}[vt{j}]"); vcur = f"[vt{j}]"
-    if project.get("subtitle_path"):
-        sp = str(project["subtitle_path"]).replace("\\", "/").replace(":", "\\:")
-        filters.append(f"{vcur}subtitles='{sp}'[vs]"); vcur = "[vs]"
-    amix = ["[ac]"]
-    for k, a in enumerate(project.get("audio", [])):
-        cmd += ["-i", a["path"]]
-        delay = int(float(a.get("start", 0)) * 1000)
-        chain = f"[{idx}:a]volume={float(a.get('volume', 1))},aresample=48000,aformat=channel_layouts=stereo,adelay={delay}|{delay}"
-        if a.get("loop"):
-            chain = f"[{idx}:a]aloop=loop=-1:size=2e9,volume={float(a.get('volume', 1))},aresample=48000,aformat=channel_layouts=stereo,adelay={delay}|{delay}"
-        filters.append(chain + f",atrim=0:{total}[m{k}]")
-        amix.append(f"[m{k}]"); idx += 1
-    if len(amix) > 1:
-        filters.append("".join(amix) + f"amix=inputs={len(amix)}:duration=first:normalize=0[aout]")
-        aout = "[aout]"
-    else:
-        aout = "[ac]"
-    out = project.get("output") or str(REPO_ROOT / "projects" / "studio_export.mp4")
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    cmd += ["-filter_complex", ";".join(filters), "-map", vcur, "-map", aout,
-            "-c:v", project.get("codec", "libx264"), "-crf", str(project.get("crf", 20)),
-            "-preset", project.get("preset", "medium"), "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart", "-t", str(total), out]
-    return cmd, out, total
+    from compiler import build
+    return build(project)
+
+
+def m_waveform(params):
+    """Peak envelope (0..1) for drawing audio waveforms."""
+    import numpy as np
+    points = int(params.get("points", 400))
+    r = subprocess.run([FFMPEG, "-v", "error", "-i", params["path"], "-ac", "1", "-ar", "4000", "-f", "s16le", "-"],
+                       capture_output=True)
+    a = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    if a.size == 0:
+        return []
+    a = np.abs(a[: (a.size // points) * points or a.size])
+    n = max(1, a.size // points)
+    peaks = a[: n * (a.size // n)].reshape(-1, n).max(axis=1)
+    m = float(peaks.max()) or 1.0
+    return [round(float(x) / m, 3) for x in peaks]
+
+
+def m_auto_edit_local(params):
+    from autoedit import auto_edit_local
+    return auto_edit_local(params, registry, m_probe, log)
+
+
+# ---------------------------------------------------------------- agent
+_agent = {"obj": None}
+
+
+def m_agent_start(params):
+    from agent import Agent
+    if _agent["obj"] and _agent["obj"].running:
+        raise RuntimeError("Agent already running")
+    reload_env()
+    ag = Agent(params, send=send, registry=registry, probe=m_probe, root=REPO_ROOT,
+               auto_edit=m_auto_edit_local, render=lambda proj: m_render_project({"project": proj}))
+    _agent["obj"] = ag
+    ag.start()
+    return {"started": True, "workdir": str(ag.workdir)}
+
+
+def m_llm_test(params):
+    from agent import LLM, llm_config
+    reload_env()
+    cfg = llm_config(params.get("llm"))
+    r = LLM(cfg).chat([{"role": "user", "content": "Reply with the single word: OK"}],
+                      [{"name": "noop", "description": "unused", "parameters": {"type": "object", "properties": {}}}])
+    return {"provider": cfg["provider"], "model": cfg["model"], "reply": r["content"][:200]}
+
+
+def m_agent_approve(params):
+    if not _agent["obj"]:
+        raise RuntimeError("no agent")
+    _agent["obj"].approve(params.get("request_id"), bool(params.get("approved", True)), params.get("inputs"))
+    return True
+
+
+def m_agent_cancel(params):
+    if _agent["obj"]:
+        _agent["obj"].cancel()
+    return True
 
 
 def m_render_project(params):

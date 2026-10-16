@@ -6,56 +6,90 @@
 <header>
   <b>🎬 OpenMontage Studio</b>
   <nav>
+    <button data-tab="director">AI Director</button>
     <button data-tab="editor" class="active">Editor</button>
     <button data-tab="tools">Tools</button>
     <button data-tab="pipelines">Pipelines</button>
-    <button data-tab="settings">Settings / API keys</button>
+    <button data-tab="settings">Settings</button>
     <button data-tab="log">Log</button>
   </nav>
   <span id="status">starting backend…</span>
 </header>
 
-<section id="editor" class="tab active">
-  <div class="col left">
-    <h3>Media bin <button id="import">+ Import</button></h3>
-    <div id="bin"></div>
-  </div>
-  <div class="col center">
-    <video id="preview" controls></video>
+<section id="director" class="tab">
+  <div class="col center wide">
+    <h3>Describe the video you want (any language — Tiếng Việt OK)</h3>
+    <textarea id="dPrompt" rows="5" placeholder="Ví dụ: Dựng video highlight 30 giây chuyến đi Đà Lạt, nhịp nhanh, có nhạc nền và tiêu đề “Đà Lạt mộng mơ”"></textarea>
+    <div class="row"><button id="dAttach">+ Attach media</button><span id="dMedia" class="hint">no media</span><button id="dClear" class="mini">clear</button></div>
     <div class="row">
-      <span id="ptime">0.00s</span>
-      <button id="setIn">Set IN</button><button id="setOut">Set OUT</button>
-      <button id="split">Split at playhead</button>
-      <span class="hint">Select a clip in the timeline, then scrub the preview.</span>
+      <label>Pipeline <select id="dPipe"><option value="auto">auto (let the AI choose)</option></select></label>
+      <label>Mode <select id="dMode"><option value="auto">auto-run tools</option><option value="approve">approve each tool call</option></select></label>
+      <label>Format <select id="dFmt"><option value="1920x1080">16:9 1080p</option><option value="1080x1920">9:16 vertical</option><option value="1080x1080">1:1</option><option value="1280x720">720p</option></select></label>
+      <label>Duration (s) <input id="dDur" type="number" value="30" style="width:60px"></label>
     </div>
-    <h3>Timeline (video track) <span id="tdur"></span></h3>
-    <div id="timeline"></div>
-    <div id="clipprops"></div>
+    <div class="row">
+      <button id="dStart" class="primary">▶ Start AI Director</button><button id="dCancel" disabled>■ Cancel</button>
+      <button id="dQuick" title="No LLM needed: scene detection + audio energy highlights, transitions, title, music bed">⚡ Quick auto-edit (no AI)</button>
+      <span id="dLlm" class="hint"></span>
+    </div>
+    <h3>Steps</h3>
+    <div id="dLog"></div>
   </div>
-  <div class="col right">
-    <h3>Text overlays <button id="addText">+ Text</button></h3>
-    <div id="texts"></div>
-    <h3>Audio tracks <button id="addAudio">+ Audio</button></h3>
-    <div id="audios"></div>
-    <h3>Export</h3>
-    <div id="export">
-      <label>Format <select id="preset">
-        <option value="1920x1080">1080p landscape</option><option value="1280x720" selected>720p landscape</option>
-        <option value="1080x1920">Vertical 9:16 (TikTok/Reels)</option><option value="1080x1080">Square 1:1</option>
-        <option value="1080x1350">Portrait 4:5</option></select></label>
-      <label>FPS <input id="fps" type="number" value="30"></label>
-      <label>Quality (CRF) <input id="crf" type="number" value="20"></label>
-      <label>Color grade <select id="grade"><option value="">none</option>
-        <option>cinematic_warm</option><option>cinematic_cool</option><option>moody_dark</option>
-        <option>bright_clean</option><option>vintage_film</option><option>high_contrast</option></select></label>
-      <label>Audio enhance <select id="aenh"><option value="">none</option>
-        <option>normalize_only</option><option>clean_speech</option><option>noise_reduce</option>
-        <option>podcast</option><option>broadcast</option><option>voice_clarity</option></select></label>
-      <label>Subtitles (.srt) <input id="subs" placeholder="optional path"><button id="pickSubs">…</button></label>
-      <button id="render" class="primary">Export video</button>
-      <progress id="prog" max="1" value="0"></progress>
-      <div id="renderResult"></div>
-      <hr><button id="saveProj">Save project</button> <button id="loadProj">Open project</button>
+</section>
+
+<section id="editor" class="tab active vert">
+  <div class="top">
+    <div class="col left">
+      <h3>Media <button id="import">+ Import</button></h3>
+      <div id="bin"></div>
+    </div>
+    <div class="col center">
+      <video id="preview"></video>
+      <div class="row">
+        <button id="play" title="Space">▶</button>
+        <span id="ptime">0.00 / 0.00s</span>
+        <button id="renderPrev" title="Low-res full render of the timeline">Render preview</button>
+        <span class="hint">Preview follows the main track; use “Render preview” to see transitions, PiP & text exactly.</span>
+      </div>
+    </div>
+    <div class="col right">
+      <h3>Inspector</h3><div id="inspector" class="hint">Select a clip or transition.</div>
+      <h3>Text overlays <button id="addText">+ Text</button></h3><div id="texts"></div>
+      <h3>Export</h3>
+      <div id="export">
+        <label>Format <select id="preset">
+          <option value="1920x1080">1080p 16:9</option><option value="1280x720" selected>720p 16:9</option>
+          <option value="1080x1920">9:16 vertical</option><option value="1080x1080">1:1</option><option value="1080x1350">4:5</option></select></label>
+        <label>FPS <input id="fps" type="number" value="30"></label>
+        <label>Quality (CRF) <input id="crf" type="number" value="20"></label>
+        <label>Color grade <select id="grade"><option value="">none</option>
+          <option>cinematic_warm</option><option>cinematic_cool</option><option>moody_dark</option>
+          <option>bright_clean</option><option>vintage_film</option><option>high_contrast</option></select></label>
+        <label>Audio enhance <select id="aenh"><option value="">none</option>
+          <option>normalize_only</option><option>clean_speech</option><option>noise_reduce</option><option>podcast</option></select></label>
+        <label>Subtitles <input id="subs" placeholder=".srt path"><button id="pickSubs" class="mini">…</button></label>
+        <button id="render" class="primary">Export video</button>
+        <progress id="prog" max="1" value="0"></progress>
+        <div id="renderResult"></div>
+        <div class="row"><button id="saveProj">Save project</button><button id="loadProj">Open project</button></div>
+      </div>
+    </div>
+  </div>
+  <div id="tlwrap">
+    <div class="tlbar">
+      <button id="undo" title="Ctrl+Z">↶</button><button id="redo" title="Ctrl+Shift+Z / Ctrl+Y">↷</button>
+      <button id="split" title="S">✂ Split</button><button id="dup" title="Ctrl+D">⧉</button><button id="del" title="Delete">🗑</button>
+      <button id="addOv">+ Video/overlay track</button><button id="addAu">+ Audio track</button>
+      <label><input type="checkbox" id="snap" checked> Snap</label>
+      <label>Zoom <input type="range" id="zoom" min="5" max="300" value="60"></label>
+      <span class="hint">Drag clips to move · drag edges to trim · Ctrl+wheel zoom · Space play · S split · Del delete</span>
+    </div>
+    <div id="tlscroll">
+      <div id="tlinner">
+        <div id="ruler"></div>
+        <div id="tracks"></div>
+        <div id="playhead"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -66,9 +100,7 @@
     <label><input type="checkbox" id="onlyAvail" checked> available only</label>
     <div id="toolList"></div>
   </div>
-  <div class="col center wide">
-    <div id="toolDetail"><p class="hint">Every OpenMontage tool (ffmpeg editing, analysis, audio, subtitles, AI generation…) can be run directly here. Forms are generated from each tool's input schema.</p></div>
-  </div>
+  <div class="col center wide"><div id="toolDetail"><p class="hint">Every OpenMontage tool can be run directly here. Forms are generated from each tool's input schema.</p></div></div>
 </section>
 
 <section id="pipelines" class="tab">
@@ -78,11 +110,19 @@
 
 <section id="settings" class="tab">
   <div class="col center wide">
-    <p class="hint">Keys are saved to the repo's <code id="envPath"></code>. Free/local tools (ffmpeg editing, analysis, subtitles, color grade…) need no keys. AI generation tools (video/image/TTS/music) unlock when their key is set.</p>
-    <div id="keys"></div><button id="saveKeys" class="primary">Save</button> <span id="keysMsg"></span>
+    <h3>AI Director (LLM)</h3>
+    <label>Provider <select id="llmProv"></select></label>
+    <label>API key <input id="llmKey" type="password" size="60" placeholder="leave empty to use the provider's key below (e.g. XAI_API_KEY)"></label>
+    <label>Base URL <input id="llmBase" size="60"></label>
+    <label>Model <input id="llmModel" size="60"></label>
+    <div class="row"><button id="llmSave" class="primary">Save LLM</button><button id="llmTest">Test connection</button><span id="llmMsg"></span></div>
+    <h3>Generation &amp; service keys</h3>
+    <p class="hint">Saved to <code id="envPath"></code>. Local tools need no keys; AI generation tools unlock when their key is set.</p>
+    <div id="keys"></div><button id="saveKeys" class="primary">Save keys</button> <span id="keysMsg"></span>
   </div>
 </section>
 
 <section id="log" class="tab"><pre id="logbox"></pre></section>
+<script src="timeline.js"></script>
 <script src="app.js"></script>
 </body></html>

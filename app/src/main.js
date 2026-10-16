@@ -59,6 +59,11 @@ function createWindow() {
       try {
         const tools = await call('list_tools', {});
         console.log('SMOKE_OK tools=' + tools.length);
+        if (process.env.OM_UI_SCRIPT) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const res = await win.webContents.executeJavaScript(fs.readFileSync(process.env.OM_UI_SCRIPT, 'utf8'));
+          console.log('UI_RESULT ' + JSON.stringify(res));
+        }
         if (process.env.OM_SCREENSHOT) {
           await new Promise((r) => setTimeout(r, 2500));
           fs.writeFileSync(process.env.OM_SCREENSHOT, (await win.webContents.capturePage()).toPNG());

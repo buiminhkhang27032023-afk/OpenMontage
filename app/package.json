@@ -2,7 +2,7 @@
   "name": "openmontage-studio",
   "productName": "OpenMontage Studio",
   "version": "0.1.0",
-  "description": "Standalone desktop video editor for OpenMontage — timeline editing, ffmpeg export, and every OpenMontage tool without an AI assistant.",
+  "description": "Standalone desktop video editor for OpenMontage \u2014 timeline editing, ffmpeg export, and every OpenMontage tool without an AI assistant.",
   "main": "src/main.js",
   "license": "AGPL-3.0",
   "author": "OpenMontage",
@@ -12,23 +12,62 @@
     "dist": "electron-builder",
     "dist:linux": "electron-builder --linux AppImage",
     "dist:win": "electron-builder --win nsis",
-    "dist:mac": "electron-builder --mac dmg"
+    "dist:mac": "electron-builder --mac dmg",
+    "test:multitrack": "node test/multitrack.test.js",
+    "test:agent": "node test/agent.test.js",
+    "test:llm": "node -e \"require('child_process').execFileSync(require('./test/helpers').PY,['test/llm_client_test.py'],{stdio:'inherit'})\"",
+    "test:ui": "node test/ui.test.js",
+    "test": "npm run -s test:backend && npm run -s test:multitrack && npm run -s test:agent && npm run -s test:llm && npm run -s test:ui"
   },
   "build": {
     "appId": "video.openmontage.studio",
     "productName": "OpenMontage Studio",
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "package.json"],
-    "extraResources": [
-      { "from": "..", "to": "openmontage", "filter": [
-        "app/backend/**", "tools/**", "lib/**", "schemas/**", "pipeline_defs/**", "styles/**",
-        "skills/**", "config.yaml", "requirements.txt", ".env.example",
-        "!**/__pycache__/**", "!**/node_modules/**", "!.venv/**", "!app/dist/**"
-      ]}
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
     ],
-    "linux": { "target": ["AppImage"], "category": "AudioVideo" },
-    "win": { "target": ["nsis"] },
-    "mac": { "target": ["dmg"], "category": "public.app-category.video" }
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "openmontage",
+        "filter": [
+          "app/backend/**",
+          "tools/**",
+          "lib/**",
+          "schemas/**",
+          "pipeline_defs/**",
+          "styles/**",
+          "skills/**",
+          "config.yaml",
+          "requirements.txt",
+          ".env.example",
+          "!**/__pycache__/**",
+          "!**/node_modules/**",
+          "!.venv/**",
+          "!app/dist/**"
+        ]
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video"
+    }
   },
   "devDependencies": {
     "electron": "^33.2.0",
