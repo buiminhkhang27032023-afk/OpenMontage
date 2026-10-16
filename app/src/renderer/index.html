@@ -1,0 +1,88 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; media-src 'self' file:; style-src 'self' 'unsafe-inline'">
+<title>OpenMontage Studio</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header>
+  <b>🎬 OpenMontage Studio</b>
+  <nav>
+    <button data-tab="editor" class="active">Editor</button>
+    <button data-tab="tools">Tools</button>
+    <button data-tab="pipelines">Pipelines</button>
+    <button data-tab="settings">Settings / API keys</button>
+    <button data-tab="log">Log</button>
+  </nav>
+  <span id="status">starting backend…</span>
+</header>
+
+<section id="editor" class="tab active">
+  <div class="col left">
+    <h3>Media bin <button id="import">+ Import</button></h3>
+    <div id="bin"></div>
+  </div>
+  <div class="col center">
+    <video id="preview" controls></video>
+    <div class="row">
+      <span id="ptime">0.00s</span>
+      <button id="setIn">Set IN</button><button id="setOut">Set OUT</button>
+      <button id="split">Split at playhead</button>
+      <span class="hint">Select a clip in the timeline, then scrub the preview.</span>
+    </div>
+    <h3>Timeline (video track) <span id="tdur"></span></h3>
+    <div id="timeline"></div>
+    <div id="clipprops"></div>
+  </div>
+  <div class="col right">
+    <h3>Text overlays <button id="addText">+ Text</button></h3>
+    <div id="texts"></div>
+    <h3>Audio tracks <button id="addAudio">+ Audio</button></h3>
+    <div id="audios"></div>
+    <h3>Export</h3>
+    <div id="export">
+      <label>Format <select id="preset">
+        <option value="1920x1080">1080p landscape</option><option value="1280x720" selected>720p landscape</option>
+        <option value="1080x1920">Vertical 9:16 (TikTok/Reels)</option><option value="1080x1080">Square 1:1</option>
+        <option value="1080x1350">Portrait 4:5</option></select></label>
+      <label>FPS <input id="fps" type="number" value="30"></label>
+      <label>Quality (CRF) <input id="crf" type="number" value="20"></label>
+      <label>Color grade <select id="grade"><option value="">none</option>
+        <option>cinematic_warm</option><option>cinematic_cool</option><option>moody_dark</option>
+        <option>bright_clean</option><option>vintage_film</option><option>high_contrast</option></select></label>
+      <label>Audio enhance <select id="aenh"><option value="">none</option>
+        <option>normalize_only</option><option>clean_speech</option><option>noise_reduce</option>
+        <option>podcast</option><option>broadcast</option><option>voice_clarity</option></select></label>
+      <label>Subtitles (.srt) <input id="subs" placeholder="optional path"><button id="pickSubs">…</button></label>
+      <button id="render" class="primary">Export video</button>
+      <progress id="prog" max="1" value="0"></progress>
+      <div id="renderResult"></div>
+      <hr><button id="saveProj">Save project</button> <button id="loadProj">Open project</button>
+    </div>
+  </div>
+</section>
+
+<section id="tools" class="tab">
+  <div class="col left">
+    <input id="toolFilter" placeholder="filter tools…">
+    <label><input type="checkbox" id="onlyAvail" checked> available only</label>
+    <div id="toolList"></div>
+  </div>
+  <div class="col center wide">
+    <div id="toolDetail"><p class="hint">Every OpenMontage tool (ffmpeg editing, analysis, audio, subtitles, AI generation…) can be run directly here. Forms are generated from each tool's input schema.</p></div>
+  </div>
+</section>
+
+<section id="pipelines" class="tab">
+  <div class="col left"><div id="pipeList"></div></div>
+  <div class="col center wide"><div id="pipeDetail"></div></div>
+</section>
+
+<section id="settings" class="tab">
+  <div class="col center wide">
+    <p class="hint">Keys are saved to the repo's <code id="envPath"></code>. Free/local tools (ffmpeg editing, analysis, subtitles, color grade…) need no keys. AI generation tools (video/image/TTS/music) unlock when their key is set.</p>
+    <div id="keys"></div><button id="saveKeys" class="primary">Save</button> <span id="keysMsg"></span>
+  </div>
+</section>
+
+<section id="log" class="tab"><pre id="logbox"></pre></section>
+<script src="app.js"></script>
+</body></html>

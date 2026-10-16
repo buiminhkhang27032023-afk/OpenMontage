@@ -1,0 +1,21 @@
+*{box-sizing:border-box}body{margin:0;font:13px system-ui,sans-serif;background:#14161c;color:#ddd;height:100vh;display:flex;flex-direction:column}
+header{display:flex;gap:16px;align-items:center;padding:8px 12px;background:#0d0f13;border-bottom:1px solid #2a2d36}
+nav button{background:none;border:none;color:#aaa;padding:6px 10px;cursor:pointer}nav button.active{color:#fff;border-bottom:2px solid #e8543a}
+#status{margin-left:auto;color:#8a8}
+.tab{display:none;flex:1;overflow:hidden}.tab.active{display:flex}
+.col{padding:10px;overflow:auto;border-right:1px solid #2a2d36}.left{width:260px}.right{width:340px}.center{flex:1}.wide{flex:1}
+h3{margin:12px 0 6px;font-size:13px;color:#fff;display:flex;justify-content:space-between;align-items:center}
+button{background:#2a2d36;color:#eee;border:1px solid #3a3e4a;border-radius:4px;padding:4px 8px;cursor:pointer}button:hover{background:#363a46}
+button.primary{background:#e8543a;border-color:#e8543a;font-weight:600}
+input,select,textarea{background:#1e2129;color:#eee;border:1px solid #3a3e4a;border-radius:4px;padding:3px 5px}
+label{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:4px 0}
+video{width:100%;max-height:45vh;background:#000}
+.row{display:flex;gap:6px;align-items:center;margin:6px 0}.hint{color:#888;font-size:12px}
+.item{background:#1e2129;border:1px solid #2a2d36;border-radius:4px;padding:6px;margin:4px 0;cursor:pointer}
+.item.sel{border-color:#e8543a}.item img{width:100%;border-radius:3px}
+#timeline{display:flex;gap:4px;overflow-x:auto;padding:6px;background:#0d0f13;min-height:90px;border-radius:4px}
+.clip{min-width:90px;background:#2b3a55;border-radius:4px;padding:4px;cursor:pointer;font-size:11px;position:relative}
+.clip.sel{outline:2px solid #e8543a}.clip img{width:100%;height:44px;object-fit:cover}
+.status-available{color:#7c7}.status-unavailable{color:#c77}
+pre{white-space:pre-wrap;margin:0;padding:10px;font:12px monospace;overflow:auto;flex:1}
+.mini{padding:1px 5px;font-size:11px}fieldset{border:1px solid #2a2d36;margin:6px 0}

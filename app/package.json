@@ -1,0 +1,37 @@
+{
+  "name": "openmontage-studio",
+  "productName": "OpenMontage Studio",
+  "version": "0.1.0",
+  "description": "Standalone desktop video editor for OpenMontage — timeline editing, ffmpeg export, and every OpenMontage tool without an AI assistant.",
+  "main": "src/main.js",
+  "license": "AGPL-3.0",
+  "author": "OpenMontage",
+  "scripts": {
+    "start": "electron .",
+    "test:backend": "node test/backend.test.js",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "video.openmontage.studio",
+    "productName": "OpenMontage Studio",
+    "directories": { "output": "dist" },
+    "files": ["src/**/*", "package.json"],
+    "extraResources": [
+      { "from": "..", "to": "openmontage", "filter": [
+        "app/backend/**", "tools/**", "lib/**", "schemas/**", "pipeline_defs/**", "styles/**",
+        "skills/**", "config.yaml", "requirements.txt", ".env.example",
+        "!**/__pycache__/**", "!**/node_modules/**", "!.venv/**", "!app/dist/**"
+      ]}
+    ],
+    "linux": { "target": ["AppImage"], "category": "AudioVideo" },
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"], "category": "public.app-category.video" }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
