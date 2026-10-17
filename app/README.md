@@ -7,7 +7,7 @@ OpenMontage's editing tools **directly from a GUI** — no AI coding assistant n
 Use **`OpenMontage-Studio-win.exe`** (portable, no install) or unzip `OpenMontage Studio-0.1.0-win.zip`
 and run `OpenMontage Studio.exe`. The Windows build is self-contained: it ships an embedded
 Python 3.12 with all `requirements.txt` packages and FFmpeg (BtbN win64 GPL build), used automatically.
-Exports, previews and AI Director work files go to `Documents\OpenMontage Studio`; keys are stored in
+Exports, previews and AI Director work files go to `%LOCALAPPDATA%\OpenMontage Studio` (Documents is avoided because Windows Controlled Folder Access blocks it; the export folder is configurable in Settings → Folders); keys are stored in
 `%APPDATA%\OpenMontage Studio\.env`. The app is unsigned, so SmartScreen may warn → “More info” → “Run anyway”.
 
 Build it yourself (works from Linux/macOS too):
@@ -99,3 +99,10 @@ set `OPENMONTAGE_PYTHON` if that python isn't `python3`/`python` on PATH.
 - Live preview follows the main track only; transitions, PiP and text are shown exactly via “Render preview”.
 - Main track is sequential (no gaps); overlays/audio are free-positioned.
 - Remotion/HyperFrames renders require Node deps in `remotion-composer/` (see main README).
+
+### Text-to-video (prompt-only runs)
+If no media is attached, the AI Director needs a generation source. With an OpenAI-compatible endpoint exposing
+`/v1/videos` (Sora-style: create → poll → `/content`), the agent gets a `generate_videos` tool and renders shots in
+parallel. It is auto-enabled for `api.buihuuthang.com` (default model `seedance-2.0-fast`; others: `seedance-2.5`, `veo-3.1`);
+for other endpoints set `OM_VIDEO_GEN_MODEL` in Settings (`off` disables). Without any generation source the app asks
+you to attach media instead of failing. Base URLs without `/v1` are normalised automatically.

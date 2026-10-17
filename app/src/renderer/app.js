@@ -14,6 +14,7 @@ om.onEvent((m) => {
   if (m.event === 'progress') $('#prog').value = m.data;
   else if (m.event === 'log' || m.event === 'stderr') log(String(m.data).trimEnd());
   else if (m.event === 'agent') onAgent(m.data);
+  else if (m.event === 'warning') { log('⚠ ' + m.data); $('#status').textContent = '⚠ ' + m.data; }
   else if (m.event === 'transcribe_progress') { const d = m.data; $('#status').textContent = d.stage === 'download' ? `downloading speech model ${d.file} ${(d.done / 1048576).toFixed(0)}/${(d.total / 1048576).toFixed(0)} MB` : `transcribing ${(100 * d.done / (d.total || 1)).toFixed(0)}%`; }
   else if (m.event === 'exit') { $('#status').textContent = 'backend stopped (' + m.data + ')'; $('#status').style.color = '#c77'; }
 });
@@ -161,7 +162,7 @@ async function doRender(proj, label) {
     return r;
   } catch (e) { $('#renderResult').textContent = '❌ ' + e.message; } finally { $('#render').disabled = $('#renderPrev').disabled = false; }
 }
-$('#render').onclick = async () => { const out = await om.saveFile({ defaultPath: 'export.mp4', filters: [{ name: 'MP4', extensions: ['mp4'] }] }); if (out) doRender(exportProject(out), 'Rendering'); };
+$('#render').onclick = async () => { const pp = await loadPaths(); const out = await om.saveFile({ defaultPath: (pp.export_dir ? pp.export_dir.replace(/[\\/]$/, '') + (pp.sep || '/') : '') + 'export.mp4', filters: [{ name: 'MP4', extensions: ['mp4'] }] }); if (out) doRender(exportProject(out), 'Rendering'); };
 $('#renderPrev').onclick = async () => {
   const root = await om.workdir(); const p = exportProject(root.replace(/[\\/]$/, '') + '/studio_preview.mp4');
   const r = await doRender({ ...p, width: Math.round(p.width / 3 / 2) * 2, height: Math.round(p.height / 3 / 2) * 2, crf: 30, preset: 'ultrafast', post: {} }, 'Rendering preview');
@@ -266,11 +267,12 @@ let LLMP = {};
 async function loadSettings() {
   const s = await om.call('get_settings', {}); $('#envPath').textContent = s.path; LLMP = s.llm_providers || {};
   $('#whModel').value = s.values.OM_WHISPER_MODEL || 'medium'; $('#visOn').value = /^(1|true|on|yes)$/i.test(s.values.OM_VISION_ENABLED || '') ? '1' : ''; $('#visModel').value = s.values.OM_VISION_MODEL || '';
-  const llmKeys = ['OM_WHISPER_MODEL', 'OM_VISION_ENABLED', 'OM_VISION_MODEL', 'OM_LLM_PROVIDER', 'OM_LLM_API_KEY', 'OM_LLM_BASE_URL', 'OM_LLM_MODEL', 'OM_LLM_MOCK_SCRIPT'];
+  const llmKeys = ['OM_WHISPER_MODEL', 'OM_VISION_ENABLED', 'OM_VISION_MODEL', 'OM_LLM_PROVIDER', 'OM_LLM_API_KEY', 'OM_LLM_BASE_URL', 'OM_LLM_MODEL', 'OM_LLM_MOCK_SCRIPT', 'OM_EXPORT_DIR', 'OM_VIDEO_GEN_MODEL', 'OM_IMAGE_GEN_MODEL'];
   const keys = [...new Set([...s.keys, 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', ...Object.keys(s.values)])].filter((k) => !llmKeys.includes(k));
   $('#keys').innerHTML = keys.map((k) => `<label>${esc(k)}<input data-key="${esc(k)}" size="60" type="${/KEY|TOKEN|SECRET/.test(k) ? 'password' : 'text'}" value="${esc(s.values[k] || '')}"></label>`).join('');
   $('#llmProv').innerHTML = Object.keys(LLMP).map((p) => `<option ${p === (s.values.OM_LLM_PROVIDER || 'openai') ? 'selected' : ''}>${p}</option>`).join('');
   $('#llmKey').value = s.values.OM_LLM_API_KEY || ''; $('#llmBase').value = s.values.OM_LLM_BASE_URL || ''; $('#llmModel').value = s.values.OM_LLM_MODEL || '';
+  $('#expDir').value = s.values.OM_EXPORT_DIR || ''; loadPaths();
   provHints(); showLlm();
 }
 function provHints() { const p = LLMP[$('#llmProv').value] || {}; $('#llmBase').placeholder = p.base_url || 'https://…/v1'; $('#llmModel').placeholder = p.model || ''; $('#llmKey').placeholder = p.key_env ? `empty = use ${p.key_env}` : 'not required'; }
@@ -284,6 +286,14 @@ $('#llmTest').onclick = async () => {
   $('#llmMsg').textContent = 'testing…';
   try { const r = await om.call('llm_test', { llm: { provider: $('#llmProv').value, api_key: $('#llmKey').value.trim() || undefined, base_url: $('#llmBase').value.trim() || undefined, model: $('#llmModel').value.trim() || undefined } }); $('#llmMsg').textContent = `✅ ${r.provider}/${r.model}: ${r.reply}`; }
   catch (e) { $('#llmMsg').textContent = '❌ ' + e.message; }
+};
+async function loadPaths() {
+  try { const p = await om.call('paths', {}); $('#workDirLbl').textContent = p.work_dir; $('#expDir').placeholder = p.export_dir; if (p.warnings && p.warnings.length) $('#expMsg').textContent = '⚠ ' + p.warnings.join(' | '); return p; } catch (e) { return {}; }
+}
+$('#expBrowse').onclick = async () => { const d = await om.pickDir({ defaultPath: $('#expDir').value || $('#expDir').placeholder }); if (d) $('#expDir').value = d; };
+$('#expSave').onclick = async () => {
+  await om.call('save_settings', { values: { OM_EXPORT_DIR: $('#expDir').value.trim() } });
+  const p = await loadPaths(); $('#expMsg').textContent = (p.warnings && p.warnings.length ? '⚠ ' + p.warnings.join(' | ') : 'Saved ✔ ' + (p.export_dir || ''));
 };
 $('#svSave').onclick = async () => { await om.call('save_settings', { values: { OM_WHISPER_MODEL: $('#whModel').value, OM_VISION_ENABLED: $('#visOn').value, OM_VISION_MODEL: $('#visModel').value.trim() } }); $('#svMsg').textContent = 'Saved ✔'; };
 $('#saveKeys').onclick = async () => {

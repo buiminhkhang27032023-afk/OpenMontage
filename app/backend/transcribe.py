@@ -53,13 +53,14 @@ patch_pyav()
 
 
 def work_dir() -> Path:
-    return Path(os.environ.get("OM_WORK_DIR") or (Path.cwd() / "projects"))
+    import paths
+    return paths.work_dir()
 
 
 def models_dir() -> Path:
-    d = Path(os.environ.get("OM_MODELS_DIR") or (work_dir() / "models"))
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    import paths
+    e = os.environ.get("OM_MODELS_DIR")
+    return paths.ensure_dir(e, "models") if e else paths.sub("models")
 
 
 def ensure_model(name: str, progress=None) -> Path:
@@ -67,7 +68,7 @@ def ensure_model(name: str, progress=None) -> Path:
     dst = models_dir() / repo.replace("/", "__")
     if (dst / "model.bin").exists() and (dst / ".complete").exists():
         return dst
-    dst.mkdir(parents=True, exist_ok=True)
+    os.makedirs(dst, exist_ok=True)
     info = requests.get(f"https://huggingface.co/api/models/{repo}", timeout=30).json()
     files = [s["rfilename"] for s in info.get("siblings", []) if not s["rfilename"].startswith(".") and not s["rfilename"].endswith(".md")]
     for f in files:
@@ -108,7 +109,8 @@ def _key(path: str, model: str, lang: str) -> str:
 
 
 def cache_path(path: str, model: str | None = None, lang: str = "vi") -> Path:
-    d = work_dir() / "transcripts"; d.mkdir(parents=True, exist_ok=True)
+    import paths
+    d = paths.sub("transcripts")
     return d / f"{Path(path).stem}.{_key(path, model or DEFAULT_MODEL, lang)}.json"
 
 

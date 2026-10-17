@@ -35,6 +35,34 @@ MAX_TEXT = 6000
 KEEP_FULL_TOOL_RESULTS = 6
 
 
+def normalize_base_url(url: str, provider: str = "") -> str:
+    """OpenAI-compatible APIs live under /v1: 'https://host' -> 'https://host/v1'."""
+    from urllib.parse import urlparse
+    url = (url or "").strip().rstrip("/")
+    if not url or provider in ("anthropic", "gemini", "mock"):
+        return url
+    if url.endswith("/chat/completions"):
+        url = url[: -len("/chat/completions")]
+    p = urlparse(url)
+    if p.scheme and p.netloc and p.path in ("", "/"):
+        url = url + "/v1"
+    return url
+
+
+def _http_error(r, what="LLM") -> str:
+    ct = (r.headers.get("content-type") or "").lower()
+    body = r.text or ""
+    if "html" in ct or body.lstrip().lower().startswith(("<!doctype", "<html")):
+        hint = " Base URL usually ends with /v1 (e.g. https://api.example.com/v1)." if r.status_code in (404, 405, 200) else ""
+        return (f"{what} endpoint returned a web page (HTTP {r.status_code}) instead of an API response: {r.url}. "
+                f"Check the Base URL and provider in Settings.{hint}")
+    try:
+        j = r.json(); msg = (j.get("error") or {}).get("message") if isinstance(j.get("error"), dict) else j.get("error") or j.get("message")
+    except ValueError:
+        msg = None
+    return f"{what} HTTP {r.status_code}: {(msg or body)[:400]}"
+
+
 def llm_config(overrides: dict | None = None) -> dict:
     o = overrides or {}
     prov = o.get("provider") or os.environ.get("OM_LLM_PROVIDER") or "openai"
@@ -42,8 +70,12 @@ def llm_config(overrides: dict | None = None) -> dict:
     key = o.get("api_key") or os.environ.get("OM_LLM_API_KEY") or (os.environ.get(keyenv) if keyenv else "") or ""
     if prov == "gemini" and not key:
         key = os.environ.get("GEMINI_API_KEY", "")
-    return {"provider": prov, "base_url": (o.get("base_url") or os.environ.get("OM_LLM_BASE_URL") or base).rstrip("/"),
-            "model": o.get("model") or os.environ.get("OM_LLM_MODEL") or model, "api_key": key,
+    url = normalize_base_url(o.get("base_url") or os.environ.get("OM_LLM_BASE_URL") or base, prov)
+    m = o.get("model") or os.environ.get("OM_LLM_MODEL") or ""
+    if not m and (prov not in ("openai", "openrouter", "custom") or url.rstrip("/") == base.rstrip("/")):
+        m = model  # provider preset only when talking to that provider's own endpoint
+    return {"provider": prov, "base_url": url,
+            "model": m, "api_key": key,
             "mock_script": o.get("mock_script") or os.environ.get("OM_LLM_MOCK_SCRIPT")}
 
 
@@ -81,6 +113,11 @@ class LLM:
         return self._openai(messages, tools)
 
     def _openai(self, messages, tools):
+        if not self.cfg.get("base_url"):
+            raise RuntimeError("LLM Base URL is empty: set it in Settings → AI Director (e.g. https://api.example.com/v1).")
+        if not self.cfg.get("model"):
+            raise RuntimeError(f"No model set for provider '{self.cfg['provider']}' with custom Base URL {self.cfg['base_url']}. "
+                               "Enter the model name in Settings → AI Director (e.g. grok-4.7).")
         h = {"Content-Type": "application/json"}
         if self.cfg["api_key"]:
             h["Authorization"] = f"Bearer {self.cfg['api_key']}"
@@ -95,10 +132,17 @@ class LLM:
                 time.sleep(2 * (attempt + 1)); continue
             if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
                 time.sleep(3 * (attempt + 1)); continue
+            ishtml = "html" in (r.headers.get("content-type") or "").lower()
+            if ishtml and not self.cfg["base_url"].rstrip("/").endswith("/v1") and attempt < 2:
+                self.cfg["base_url"] = self.cfg["base_url"].rstrip("/") + "/v1"  # retry under /v1
+                continue
             break
-        if r.status_code >= 400:
-            raise RuntimeError(f"LLM HTTP {r.status_code}: {r.text[:500]}")
-        j = r.json()
+        if r.status_code >= 400 or "html" in (r.headers.get("content-type") or "").lower():
+            raise RuntimeError(_http_error(r))
+        try:
+            j = r.json()
+        except ValueError:
+            raise RuntimeError(f"LLM returned non-JSON (HTTP {r.status_code}) from {r.url}: {r.text[:200]}")
         self._usage(j.get("usage") or {}, "prompt_tokens", "completion_tokens")
         if not j.get("choices"):
             raise RuntimeError(f"LLM returned no choices: {str(j)[:300]}")
@@ -138,7 +182,7 @@ class LLM:
         r = requests.post(self.cfg["base_url"] + "/messages", json=body, timeout=300, headers={
             "x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01", "content-type": "application/json"})
         if r.status_code >= 400:
-            raise RuntimeError(f"LLM HTTP {r.status_code}: {r.text[:500]}")
+            raise RuntimeError(_http_error(r))
         j = r.json()
         self._usage(j.get("usage") or {}, "input_tokens", "output_tokens")
         content = j.get("content", [])
@@ -175,6 +219,12 @@ AGENT_TOOLS = [
     _fn("inspect_frames", "Vision check: extract frames at the given SOURCE times and ask a vision model about quality "
         "(sharpness, eyes open, framing, expression). Use it to reject bad moments among your candidate segments.",
         {"path": {"type": "string"}, "times": {"type": "array", "items": {"type": "number"}}, "question": {"type": "string"}}, ["path", "times"]),
+    _fn("generate_videos", "Text-to-video: generate new footage clips from prompts with the endpoint's video model "
+        "(each shot ~5 s, takes several minutes; all shots run in parallel, so request every shot you need in ONE call, max 6). "
+        "Write prompts in English, visual and specific (subject, motion, camera, light). Returns local mp4 paths to use in set_project.",
+        {"shots": {"type": "array", "items": {"type": "object", "properties": {"prompt": {"type": "string"}, "seconds": {"type": "number"}},
+                                               "required": ["prompt"]}},
+         "size": {"type": "string", "description": "720x1280 (vertical) or 1280x720"}}, ["shots"]),
     _fn("set_project", "Submit the final editable Studio timeline project (schema v2, see system prompt). It is validated and loaded into the user's timeline.",
         {"project": {"type": "object"}}, ["project"]),
     _fn("render_preview", "Render the current project to an mp4 in the workdir to verify it (optional).", {}),
@@ -182,7 +232,8 @@ AGENT_TOOLS = [
         {"summary": {"type": "string"}}, ["summary"]),
 ]
 
-SIDE_EFFECT_TOOLS = {"run_tool", "render_preview"}
+SIDE_EFFECT_TOOLS = {"run_tool", "render_preview", "generate_videos"}
+GEN_CAPS = {"video_generation", "image_generation", "clip_acquisition", "clip_retrieval"}
 
 
 def vision_enabled() -> bool:
@@ -208,8 +259,8 @@ class Agent:
         self.root, self.auto_edit, self.render = Path(root), auto_edit, render
         self.mode = params.get("mode", "auto")  # auto | approve
         self.max_steps = int(params.get("max_steps", 40))
-        self.workdir = Path(os.environ.get("OM_WORK_DIR") or (self.root / "projects")) / "studio_agent" / time.strftime("%Y%m%d-%H%M%S")
-        self.workdir.mkdir(parents=True, exist_ok=True)
+        import paths
+        self.workdir = paths.ensure_dir(paths.sub("studio_agent") / time.strftime("%Y%m%d-%H%M%S"), "studio_agent")
         self.running, self._cancel = False, threading.Event()
         self._approvals: dict[str, dict] = {}
         self.project = None
@@ -217,7 +268,10 @@ class Agent:
         self.proxy_to_orig: dict = {}
         self.cfg = llm_config(params.get("llm"))
         self.vision = bool(params.get("vision", vision_enabled()))
-        self.tools = [t for t in AGENT_TOOLS if self.vision or t["name"] != "inspect_frames"]
+        import videogen
+        self.video_model = videogen.video_model(self.cfg)
+        self.tools = [t for t in AGENT_TOOLS if (self.vision or t["name"] != "inspect_frames")
+                      and (self.video_model or t["name"] != "generate_videos")]
         self.blocked_tools: set = set()
         self.transcripts: dict = {}
 
@@ -311,11 +365,30 @@ Optional top-level "auto_subtitles": {{"style": "tiktok"|"clean", "uppercase": f
             minfo.append("Proxies for analysis (same timing):")
             minfo += [f"- {p} -> proxy {q}" for p, q in proxies.items()]
         user = self.params.get("prompt", "")
+        gen_note = ""
+        if not media:
+            gen_tools = []
+            try:
+                gen_tools = [t.name for t in self.registry().get_available() if t.capability in GEN_CAPS]
+            except Exception:  # noqa: BLE001
+                pass
+            if not self.video_model and not gen_tools:
+                text = ("Chưa có media nào được đính kèm và chưa cấu hình công cụ tạo video/ảnh (generation key), nên AI không có cảnh quay để dựng. "
+                        "Hãy bấm 'Attach media' để thêm video/ảnh của bạn rồi chạy lại, hoặc dùng endpoint có model video (Settings → OM_VIDEO_GEN_MODEL) "
+                        "/ thêm key tạo video (vd. FAL_KEY, RUNWAY_API_KEY) hoặc key stock footage (PEXELS_API_KEY).\n"
+                        "No media attached and no generation tools are configured: attach your footage, or set a video model / generation key in Settings.")
+                self.emit("message", text=text)
+                self.emit("finish", summary=text)
+                return
+            gen_note = ("\nNo media attached: create the footage. "
+                        + (f"Use generate_videos (model {self.video_model}) with 4-6 shots of ~5 s in ONE call (they render in parallel, several minutes), "
+                           "then build the timeline from the returned files (add title texts, transitions, music if available). " if self.video_model else "")
+                        + (f"Other available generation tools: {', '.join(gen_tools[:15])}." if gen_tools else ""))
         pipe = self.params.get("pipeline") or "auto"
         opts = self.params.get("options") or {}
         msg = (f"{user}\n\nPipeline: {pipe if pipe != 'auto' else 'choose the best one'}\n"
                f"Output format: {opts.get('width', 1920)}x{opts.get('height', 1080)}, target duration ~{opts.get('duration', 'auto')}s\n"
-               f"Attached media:\n" + ("\n".join(minfo) if minfo else "(none)"))
+               f"Attached media:\n" + ("\n".join(minfo) if minfo else "(none)") + gen_note)
         messages = [{"role": "system", "content": self._system_prompt()}, {"role": "user", "content": msg}]
         self.emit("start", provider=self.cfg["provider"], model=self.cfg["model"], workdir=str(self.workdir))
         for step in range(self.max_steps):
@@ -408,7 +481,7 @@ Optional top-level "auto_subtitles": {{"style": "tiktok"|"clean", "uppercase": f
         r = requests.post(cfg["base_url"] + "/chat/completions", headers=h, timeout=180,
                           json={"model": model, "messages": [{"role": "user", "content": content}]})
         if r.status_code >= 400:
-            return {"error": f"vision HTTP {r.status_code}: {r.text[:300]}"}
+            return {"error": _http_error(r, "vision")}
         j = r.json()
         if hasattr(self, "_llm") and self._llm:
             self._llm._usage(j.get("usage") or {}, "prompt_tokens", "completion_tokens")
@@ -440,7 +513,8 @@ Optional top-level "auto_subtitles": {{"style": "tiktok"|"clean", "uppercase": f
             if not i.get("has_video") or i.get("is_image") or max(i.get("width") or 0, i.get("height") or 0) <= 1920:
                 continue
             st = os.stat(m)
-            pdir = self.workdir.parent.parent / "proxies"; pdir.mkdir(parents=True, exist_ok=True)
+            import paths
+            pdir = paths.sub("proxies")
             q = pdir / (f"proxy_{Path(m).stem.replace(' ', '_')}_{st.st_size}_{int(st.st_mtime)}.mp4")
             if q.exists() and q.stat().st_size > 0:
                 out[m] = str(q); self.proxy_to_orig[str(q)] = m
@@ -572,6 +646,30 @@ Optional top-level "auto_subtitles": {{"style": "tiktok"|"clean", "uppercase": f
                     "sentences": [{"id": x["id"], "start": x["start"], "end": x["end"], "text": x["text"]} for x in tr["sentences"]]}
         if name == "inspect_frames":
             return self._inspect_frames(a)
+        if name == "generate_videos":
+            import videogen
+            if not self.video_model:
+                return {"error": "no video generation model configured"}
+            shots = [s for s in (a.get("shots") or []) if isinstance(s, dict) and s.get("prompt")][:6]
+            if not shots:
+                return {"error": "shots must be a non-empty list of {prompt, seconds}"}
+            w, hgt = (self.params.get("options") or {}).get("width", 1080), (self.params.get("options") or {}).get("height", 1920)
+            size = a.get("size") or ("720x1280" if hgt > w else "1280x720")
+            self.emit("message", text=f"Generating {len(shots)} clip(s) with {self.video_model} ({size}) — this takes a few minutes …")
+            last = {}
+            def prog(d):
+                if time.time() - last.get(d["id"], 0) > 60:
+                    last[d["id"]] = time.time()
+                    self.emit("message", text=f"  video job {d['id'][-8:]}: {d.get('status')} {d.get('progress') or ''}% ({d.get('elapsed')}s)")
+            res = videogen.generate_many(self.cfg, shots, self.workdir / "generated", size=size, model=self.video_model,
+                                         progress=prog, cancel=self._cancel)
+            for r in res:
+                if r.get("path"):
+                    try:
+                        i = self.probe({"path": r["path"]}); r.update(duration=round(i["duration"], 2), width=i["width"], height=i["height"], has_audio=i["has_audio"])
+                    except Exception:  # noqa: BLE001
+                        pass
+            return {"clips": res}
         if name == "set_project":
             from compiler import build, upgrade
             proj = upgrade(a["project"])

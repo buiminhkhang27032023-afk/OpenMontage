@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('om', {
   reveal: (p) => ipcRenderer.invoke('reveal', p),
   pathFor: (f) => (webUtils && webUtils.getPathForFile ? webUtils.getPathForFile(f) : f.path),
   workdir: () => ipcRenderer.invoke('workdir'),
+  pickDir: (opts) => ipcRenderer.invoke('pick-dir', opts),
   root: () => ipcRenderer.invoke('root'),
   onEvent: (cb) => ipcRenderer.on('backend-event', (_e, m) => cb(m)),
 });

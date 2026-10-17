@@ -122,6 +122,10 @@
     <label>Vision check of frames <select id="visOn"><option value="">off</option><option value="1">on</option></select></label>
     <label>Vision model <input id="visModel" size="40" placeholder="gemini-3.8-flash"></label>
     <div class="row"><button id="svSave" class="primary">Save speech/vision</button><span id="svMsg"></span></div>
+    <h3>Folders</h3>
+    <p class="hint">Work data (AI sessions, proxies, transcripts, models) lives in <code id="workDirLbl"></code>.</p>
+    <label>Export folder <input id="expDir" size="60" placeholder="default: work folder\exports"></label>
+    <div class="row"><button id="expBrowse">Browse…</button><button id="expSave" class="primary">Save folder</button><span id="expMsg"></span></div>
     <h3>Generation &amp; service keys</h3>
     <p class="hint">Saved to <code id="envPath"></code>. Local tools need no keys; AI generation tools unlock when their key is set.</p>
     <div id="keys"></div><button id="saveKeys" class="primary">Save keys</button> <span id="keysMsg"></span>

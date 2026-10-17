@@ -234,8 +234,8 @@ def build(project: dict, progress: bool = True):
         aout = "[aout]"
     else:
         aout = ca
-    out = project.get("output") or str(Path(os.environ.get("OM_WORK_DIR") or (Path.cwd() / "projects")) / "studio_export.mp4")
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    import paths
+    out = str(paths.ensure_parent(project.get("output") or (paths.export_dir() / "studio_export.mp4")))
     cmd = [FFMPEG, "-y", "-v", "error"] + (["-progress", "pipe:2"] if progress else []) + inp.args + [
         "-filter_complex", ";".join(F), "-map", cv, "-map", aout,
         "-c:v", project.get("codec", "libx264"), "-crf", str(project.get("crf", 20)),

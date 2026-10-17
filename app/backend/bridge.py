@@ -68,6 +68,8 @@ def reload_env():
                 k, v = line.split("=", 1)
                 if v.strip():
                     os.environ[k.strip()] = v.strip().strip('"').strip("'")
+                elif k.strip() in ("OM_EXPORT_DIR", "OM_VIDEO_GEN_MODEL", "OM_IMAGE_GEN_MODEL"):
+                    os.environ.pop(k.strip(), None)
 
 
 def m_list_tools(params):
@@ -194,7 +196,7 @@ def m_probe(params):
 
 def m_thumbnail(params):
     out = Path(tempfile.gettempdir()) / "openmontage_thumbs"
-    out.mkdir(exist_ok=True)
+    os.makedirs(out, exist_ok=True)
     dst = out / (str(abs(hash((params["path"], params.get("time", 0))))) + ".jpg")
     subprocess.run([FFMPEG, "-y", "-v", "error", "-ss", str(params.get("time", 0)), "-i", params["path"],
                     "-frames:v", "1", "-vf", "scale=240:-2", str(dst)], check=True)
@@ -241,6 +243,14 @@ def m_agent_start(params):
     _agent["obj"] = ag
     ag.start()
     return {"started": True, "workdir": str(ag.workdir)}
+
+
+def m_paths(params):
+    import paths
+    reload_env()
+    wd = paths.work_dir()
+    ed = paths.export_dir()
+    return {"work_dir": str(wd), "export_dir": str(ed), "sep": os.sep, "warnings": list(paths.WARNINGS)}
 
 
 def m_llm_test(params):
@@ -299,7 +309,14 @@ def _apply_auto_subtitles(project):
 
 
 def m_render_project(params):
-    project = _apply_auto_subtitles(params["project"])
+    import paths
+    project = dict(params["project"])
+    want = project.get("output") or str(paths.export_dir() / "studio_export.mp4")
+    project["output"] = str(paths.ensure_parent(want))
+    if project["output"] != str(Path(want)):
+        log(f"Output folder not writable; saving to {project['output']}")
+        send({"event": "warning", "data": f"Không ghi được vào thư mục đã chọn, đã lưu sang: {project['output']}"})
+    project = _apply_auto_subtitles(project)
     cmd, out, total = build_render_cmd(project)
     log("ffmpeg " + " ".join(cmd[1:]))
     p = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)

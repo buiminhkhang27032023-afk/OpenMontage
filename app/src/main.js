@@ -11,7 +11,17 @@ const ROOT = app.isPackaged
 // Bundled runtimes (Windows build ships embeddable Python + FFmpeg in resources/)
 const VENDOR_PY = path.join(process.resourcesPath || '', 'python', process.platform === 'win32' ? 'python.exe' : 'bin/python3');
 const VENDOR_FF = path.join(process.resourcesPath || '', 'ffmpeg');
-const WORK_DIR = app.isPackaged ? path.join(app.getPath('documents'), 'OpenMontage Studio') : path.join(ROOT, 'projects');
+// Work dir: %LOCALAPPDATA%\OpenMontage Studio on Windows (Documents is often blocked by Controlled Folder Access)
+function localBase() {
+  if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA || path.join(require('os').homedir(), 'AppData', 'Local'), 'OpenMontage Studio');
+  return path.join(app.getPath('userData'), 'work');
+}
+let WORK_DIR = process.env.OM_WORK_DIR || (app.isPackaged || process.platform === 'win32' ? localBase() : path.join(ROOT, 'projects'));
+function ensureWorkDir() {
+  for (const d of [WORK_DIR, localBase(), path.join(require('os').tmpdir(), 'OpenMontage Studio')]) {
+    try { fs.mkdirSync(d, { recursive: true }); fs.accessSync(d, fs.constants.W_OK); if (d !== WORK_DIR) console.error(`[main] work dir ${WORK_DIR} not writable, using ${d}`); WORK_DIR = d; return; } catch (e) { /* try next */ }
+  }
+}
 
 function findPython() {
   if (process.env.OPENMONTAGE_PYTHON) return process.env.OPENMONTAGE_PYTHON;
@@ -34,7 +44,7 @@ function startBackend() {
     if (fs.existsSync(path.join(VENDOR_FF, 'fonts.conf'))) { env.FONTCONFIG_FILE = path.join(VENDOR_FF, 'fonts.conf'); env.FONTCONFIG_PATH = VENDOR_FF; }
     env.FFPROBE_PATH = path.join(VENDOR_FF, process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
   }
-  fs.mkdirSync(WORK_DIR, { recursive: true });
+  ensureWorkDir();
   py = spawn(findPython(), [path.join(ROOT, 'app', 'backend', 'bridge.py')], {
     cwd: ROOT, windowsHide: true, env: { ...env, OPENMONTAGE_ROOT: ROOT, OM_WORK_DIR: WORK_DIR, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
       ...(app.isPackaged ? { OPENMONTAGE_ENV: path.join(app.getPath('userData'), '.env') } : {}) },
@@ -103,6 +113,10 @@ ipcMain.handle('load-json', (_e, file) => JSON.parse(fs.readFileSync(file, 'utf8
 ipcMain.handle('reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('root', () => ROOT);
 ipcMain.handle('workdir', () => WORK_DIR);
+ipcMain.handle('pick-dir', async (_e, opts = {}) => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath: opts.defaultPath });
+  return r.canceled ? null : r.filePaths[0];
+});
 
 app.whenReady().then(() => { startBackend(); createWindow(); });
 app.on('window-all-closed', () => { py && py.kill(); app.quit(); });
